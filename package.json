@@ -1,0 +1,35 @@
+{
+  "name": "eze-u-internet-monitor",
+  "version": "1.0.0",
+  "description": "Ezé-U Internet Monitor - Real-time internet monitoring with live data and speed tests",
+  "main": "index.js",
+  "scripts": {
+    "start": "node backend/server.js",
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "nodemon backend/server.js",
+    "client": "cd frontend && npm start",
+    "install-all": "npm install && cd frontend && npm install"
+  },
+  "keywords": [
+    "internet",
+    "monitoring",
+    "speedtest"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "better-sqlite3": "^12.4.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "node-schedule": "^2.1.1",
+    "ping": "^0.4.4",
+    "speedtest-net": "^2.2.0",
+    "sqlite3": "^5.1.7",
+    "ws": "^8.14.2"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.1",
+    "nodemon": "^3.0.1"
+  }
+}

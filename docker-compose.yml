@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  internet-monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: eze-u-internet-monitor
+    ports:
+      - "5000:5000"
+    volumes:
+      # Persist SQLite database
+      - ./backend/data:/app/backend/data
+      # Optional: Mount monitoring.db directly for easy backup
+      - ./backend/monitoring.db:/app/backend/monitoring.db
+    environment:
+      - NODE_ENV=production
+      - PORT=5000
+      - TZ=Africa/Johannesburg  # Set to your timezone
+    restart: unless-stopped
+    networks:
+      - monitor-network
+    # Use host network mode for better ping/network access (optional)
+    # network_mode: host  # Uncomment if you need direct host network access
+    
+    # Resource limits (optional)
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+networks:
+  monitor-network:
+    driver: bridge
+
+volumes:
+  monitor-data:
+    driver: local
