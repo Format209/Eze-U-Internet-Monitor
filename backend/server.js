@@ -74,9 +74,31 @@ db.serialize(() => {
       ping REAL NOT NULL,
       jitter REAL,
       downloadLatency REAL,
-      uploadLatency REAL
+      uploadLatency REAL,
+      server TEXT,
+      isp TEXT,
+      result_url TEXT
     )
   `);
+
+  // Add server and isp columns if they don't exist (migration for existing databases)
+  db.run(`ALTER TABLE speed_tests ADD COLUMN server TEXT`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      console.error('Error adding server column:', err.message);
+    }
+  });
+  
+  db.run(`ALTER TABLE speed_tests ADD COLUMN isp TEXT`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      console.error('Error adding isp column:', err.message);
+    }
+  });
+  
+  db.run(`ALTER TABLE speed_tests ADD COLUMN result_url TEXT`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      console.error('Error adding result_url column:', err.message);
+    }
+  });
 
   db.run(`
     CREATE TABLE IF NOT EXISTS settings (
@@ -205,8 +227,8 @@ async function loadHistory(limit = 100) {
 // Save speed test to database
 async function saveSpeedTest(result) {
   await dbRun(`
-    INSERT INTO speed_tests (timestamp, download, upload, ping, jitter, downloadLatency, uploadLatency)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO speed_tests (timestamp, download, upload, ping, jitter, downloadLatency, uploadLatency, server, isp, result_url)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, [
     result.timestamp,
     result.download,
@@ -214,7 +236,10 @@ async function saveSpeedTest(result) {
     result.ping,
     result.jitter || null,
     result.downloadLatency || null,
-    result.uploadLatency || null
+    result.uploadLatency || null,
+    result.server || null,
+    result.isp || null,
+    result.resultUrl || null
   ]);
 }
 
@@ -401,7 +426,8 @@ async function performSpeedTest(retryCount = 0) {
       downloadLatency: parseFloat(downloadLatency.toFixed(2)),
       uploadLatency: parseFloat(uploadLatency.toFixed(2)),
       server: result.server?.name || 'Unknown',
-      isp: result.isp || 'Unknown'
+      isp: result.isp || 'Unknown',
+      resultUrl: result.result?.url || null
     };
     
     console.log('✅ Speed test details:', {

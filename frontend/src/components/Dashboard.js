@@ -4,6 +4,18 @@ import { format } from 'date-fns';
 import { Activity, Zap, Upload, Download, Trash2, Clock, Radio, X, TrendingUp, RefreshCw } from 'lucide-react';
 import './Dashboard.css';
 
+// Dynamic backend URL configuration
+// Frontend connects to backend on the same IP/hostname it's running on
+const getBackendUrl = () => {
+  const protocol = window.location.protocol;
+  const hostname = window.location.hostname;
+  
+  // Backend is always on port 5000
+  return `${protocol}//${hostname}:5000`;
+};
+
+const BACKEND_URL = getBackendUrl();
+
 function Dashboard({ currentSpeed, history, isMonitoring, liveMonitoring, toggleMonitoring, runSpeedTest, clearHistory, settings }) {
   const [timeRange, setTimeRange] = useState('1h');
   const [isTestRunning, setIsTestRunning] = useState(false);
@@ -57,7 +69,7 @@ function Dashboard({ currentSpeed, history, isMonitoring, liveMonitoring, toggle
   useEffect(() => {
     const fetchNextTest = async () => {
       try {
-        const response = await fetch('http://localhost:5000/api/next-test');
+        const response = await fetch(`${BACKEND_URL}/api/next-test`);
         const data = await response.json();
         if (data.nextRun) {
           setNextTestTime(new Date(data.nextRun));
@@ -86,7 +98,7 @@ function Dashboard({ currentSpeed, history, isMonitoring, liveMonitoring, toggle
       setIsLoadingHistory(true);
       try {
         const response = await fetch(
-          `http://localhost:5000/api/live-monitoring-history/${encodeURIComponent(selectedHost.address)}?timeRange=${hostTimeRange}`
+          `${BACKEND_URL}/api/live-monitoring-history/${encodeURIComponent(selectedHost.address)}?timeRange=${hostTimeRange}`
         );
         const data = await response.json();
         
@@ -801,7 +813,7 @@ function Dashboard({ currentSpeed, history, isMonitoring, liveMonitoring, toggle
                     const fetchHostHistory = async () => {
                       try {
                         const response = await fetch(
-                          `http://localhost:5000/api/live-monitoring-history/${encodeURIComponent(selectedHost.address)}?timeRange=${hostTimeRange}`
+                          `${BACKEND_URL}/api/live-monitoring-history/${encodeURIComponent(selectedHost.address)}?timeRange=${hostTimeRange}`
                         );
                         const data = await response.json();
                         if (data.history) {

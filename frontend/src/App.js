@@ -4,6 +4,19 @@ import Dashboard from './components/Dashboard';
 import Settings from './components/Settings';
 import './App.css';
 
+// Dynamic backend URL configuration
+// Frontend connects to backend on the same IP/hostname it's running on
+const getBackendUrl = () => {
+  const protocol = window.location.protocol;
+  const hostname = window.location.hostname;
+  
+  // Backend is always on port 5000
+  return `${protocol}//${hostname}:5000`;
+};
+
+const BACKEND_URL = getBackendUrl();
+const WS_URL = BACKEND_URL.replace(/^http/, 'ws');
+
 function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [currentSpeed, setCurrentSpeed] = useState({ download: 0, upload: 0, ping: 0 });
@@ -42,7 +55,7 @@ function App() {
   // WebSocket connection
   useEffect(() => {
     const connectWebSocket = () => {
-      const websocket = new WebSocket('ws://localhost:5000');
+      const websocket = new WebSocket(WS_URL);
 
       websocket.onopen = () => {
         console.log('WebSocket connected');
