@@ -636,10 +636,15 @@ async function sendEmailNotification(emailConfig, message, eventType) {
 // Perform ping test
 async function performPing(host = '8.8.8.8') {
   try {
+    // Detect OS for proper ping flags
+    // Windows uses -n, Linux/Mac uses -c
+    const isWindows = process.platform === 'win32';
+    const pingArgs = isWindows ? ['-n', '1'] : ['-c', '1'];
+    
     const res = await ping.promise.probe(host, {
       timeout: 10,
       min_reply: 1,
-      extra: ['-n', '1'] // Windows-specific: send only 1 packet
+      extra: pingArgs
     });
     
     logger.debug(`Ping ${host}: alive=${res.alive}, time=${res.time}`);
