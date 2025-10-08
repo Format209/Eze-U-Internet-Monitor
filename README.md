@@ -2,7 +2,6 @@
 
 A modern, real-time internet monitoring application with advanced speed testing capabilities. Monitor your internet connection with live data visualization, automated speed tests, multiple host monitoring, and customizable thresholds.
 
-![Azure Blue Theme](https://img.shields.io/badge/theme-azure%20blue-06b6d4)
 ![React 18](https://img.shields.io/badge/react-18-61dafb)
 ![Node.js](https://img.shields.io/badge/node.js-express-339933)
 ![WebSocket](https://img.shields.io/badge/realtime-websocket-orange)
