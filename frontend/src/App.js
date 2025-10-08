@@ -9,8 +9,16 @@ import './App.css';
 const getBackendUrl = () => {
   const protocol = window.location.protocol;
   const hostname = window.location.hostname;
+  const port = window.location.port;
   
-  // Backend is always on port 8745
+  // In production (Docker/static serving), frontend and backend are on the same port
+  // In development, backend is on 8745, frontend proxies requests
+  if (port && port !== '80' && port !== '443') {
+    // Using explicit port (either 4280 in dev or 8745 in production)
+    return `${protocol}//${hostname}:${port}`;
+  }
+  
+  // Default to port 8745 if no port specified
   return `${protocol}//${hostname}:8745`;
 };
 
@@ -168,7 +176,12 @@ function App() {
 
   // WebSocket connection
   useEffect(() => {
+    console.log('🔌 Initializing WebSocket connection...');
+    console.log('   Backend URL:', BACKEND_URL);
+    console.log('   WebSocket URL:', WS_URL);
+    
     const connectWebSocket = () => {
+      console.log('🔌 Connecting to WebSocket:', WS_URL);
       const websocket = new WebSocket(WS_URL);
 
       websocket.onopen = () => {
