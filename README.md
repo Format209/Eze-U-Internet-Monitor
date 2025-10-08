@@ -6,6 +6,23 @@ A modern, real-time internet monitoring application with advanced speed testing 
 ![React 18](https://img.shields.io/badge/react-18-61dafb)
 ![Node.js](https://img.shields.io/badge/node.js-express-339933)
 ![WebSocket](https://img.shields.io/badge/realtime-websocket-orange)
+![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)
+
+## 📄 License
+
+Copyright (c) 2025 Format209
+
+This project is licensed under the **ISC License** - see the [LICENSE](LICENSE) file for details.
+
+### What This Means
+- ✅ **Free to use** for personal and commercial projects
+- ✅ **Modify and distribute** as you wish
+- ✅ **No warranty** - use at your own risk
+- ✅ **Attribution** - keep the copyright notice
+
+The ISC License is a permissive open-source license similar to MIT and BSD, allowing maximum freedom for users while protecting the author from liability.
+
+---
 
 ## ✨ Features
 
@@ -465,21 +482,7 @@ If you find this project helpful, consider supporting development:
 
 [![GitHub Sponsors](https://img.shields.io/badge/Sponsor-❤️-red?logo=github)](https://github.com/sponsors/Format209)
 
-## 📄 License
-
-Copyright (c) 2025 Format209
-
-This project is licensed under the **ISC License** - see the [LICENSE](LICENSE) file for details.
-
-### What This Means
-- ✅ **Free to use** for personal and commercial projects
-- ✅ **Modify and distribute** as you wish
-- ✅ **No warranty** - use at your own risk
-- ✅ **Attribution** - keep the copyright notice
-
-The ISC License is a permissive open-source license similar to MIT and BSD, allowing maximum freedom for users while protecting the author from liability.
-
-## 👨‍💻 Author
+## ‍💻 Author
 
 **Format209**
 - GitHub: [@Format209](https://github.com/Format209)
