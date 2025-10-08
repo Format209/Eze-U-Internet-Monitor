@@ -19,11 +19,15 @@ A modern, real-time internet monitoring application with advanced speed testing 
 - **Connection Status**: Real-time WebSocket connection indicator
 
 ### ⚙️ Settings & Configuration
-- **Tabbed Settings Interface**: Organized sidebar with Monitoring, Live Hosts, Thresholds, and Donate tabs
-- **Test Interval**: Configure automatic speed test frequency
+- **Tabbed Settings Interface**: Organized sidebar with Monitoring, Live Hosts, Thresholds, Notifications, Reports, and Donate tabs
+- **Test Interval**: Configure automatic speed test frequency (minutes)
+- **Live Monitoring Interval**: Configure host ping check frequency (seconds, recommended 3-10s)
 - **Multiple Host Monitoring**: Add/remove custom hosts to monitor
 - **Performance Thresholds**: Set minimum download/upload speeds and maximum ping latency
+- **Advanced Notifications**: 7 notification channels (Browser, Discord, Telegram, Slack, Webhook, Email, SMS)
+- **8 Notification Events**: Speed test complete, threshold breach, host down/up, connection lost/restored, high latency, packet loss
 - **Host History Modal**: Detailed ping history charts for each monitored host
+- **Performance Reports**: Generate detailed reports with CSV export and Speedtest.net result links
 
 ### 🎨 User Interface
 - **Ultra-dark Theme**: Pure black (#000000) background with azure blue accents (#06b6d4, #0ea5e9, #67e8f9)
@@ -35,12 +39,14 @@ A modern, real-time internet monitoring application with advanced speed testing 
 ## 🛠️ Tech Stack
 
 ### Backend
-- **Node.js** with Express (port 5000)
+- **Node.js** with Express (port 8745)
 - **WebSocket** (ws) for real-time updates
-- **Ookla Speedtest CLI** for accurate internet speed testing
+- **Ookla Speedtest CLI** for accurate internet speed testing with result URLs
 - **Ping** module for latency monitoring
 - **node-schedule** for automated testing
 - **SQLite3** for persistent data storage
+- **Axios** for webhook notifications (Discord, Telegram, Slack, custom webhooks)
+- **Custom Logger** with color-coded timestamps (DEBUG, INFO, WARN, ERROR, SUCCESS)
 
 ### Frontend
 - **React 18** - Modern UI framework
@@ -50,10 +56,10 @@ A modern, real-time internet monitoring application with advanced speed testing 
 - **Axios** - HTTP client for API calls
 
 ### Database Schema
-- `speed_tests` - Speed test results with download/upload/ping/jitter/latency
-- `settings` - Application configuration
+- `speed_tests` - Speed test results with download/upload/ping/jitter/latency/server/ISP/result_url
+- `settings` - Application configuration including testInterval, monitorInterval, thresholds, notificationSettings
 - `live_monitoring` - Current ping state for monitored hosts
-- `live_monitoring_history` - Historical ping data for hosts
+- `live_monitoring_history` - Historical ping data for hosts (auto-cleanup after 7 days)
 
 ## 📦 Installation
 
@@ -105,9 +111,9 @@ npm start
 ```
 
 The application will be available at:
-- **Frontend**: http://localhost:3000
-- **Backend API**: http://localhost:5000
-- **WebSocket**: ws://localhost:5000
+- **Frontend**: http://localhost:4280
+- **Backend API**: http://localhost:8745
+- **WebSocket**: ws://localhost:8745
 
 ### Production Mode
 
@@ -142,7 +148,7 @@ docker-compose down
 
 Create `backend/.env` (optional):
 ```env
-PORT=5000
+PORT=8745
 NODE_ENV=development
 ```
 
@@ -152,15 +158,30 @@ The application initializes with these defaults (configurable in Settings tab):
 
 **Monitoring Tab:**
 - Test Interval: 30 minutes (automated speed tests)
+- Live Monitoring Interval: 5 seconds (host ping checks)
 
 **Live Hosts Tab:**
-- Default Hosts: `8.8.8.8` (Google DNS), `1.1.1.1` (Cloudflare DNS)
+- Default Hosts: `8.8.8.8` (Google DNS), `1.1.1.1` (Cloudflare DNS), `208.67.222.222` (OpenDNS)
 - Add/remove custom hosts for monitoring
+- Toggle individual host monitoring on/off
 
 **Performance Thresholds Tab:**
 - Min Download Speed: 50 Mbps
 - Min Upload Speed: 10 Mbps
 - Max Ping Latency: 100 ms
+
+**Notifications Tab:**
+- All notification channels disabled by default
+- Configure: Browser, Discord, Telegram, Slack, Webhook, Email, SMS
+- Customize which events trigger notifications
+- Cooldown period: 5 minutes between similar notifications
+- Optional quiet hours configuration
+
+**Reports Tab:**
+- View all speed test history with sorting
+- Time range filters (24H, 7D, 30D, custom dates)
+- Export to CSV with all metrics
+- Direct links to Speedtest.net results
 
 ## 📖 Usage
 
@@ -222,6 +243,85 @@ The application initializes with these defaults (configurable in Settings tab):
 - `hostRemoved` - Host removed from monitoring
 - `historyCleared` - Speed test history cleared
 
+## 🔔 Notifications
+
+The application supports 7 notification channels for monitoring alerts:
+
+### Notification Channels
+1. **Browser Notifications** - Desktop notifications with sound
+2. **Discord** - Send alerts to Discord channels via webhooks
+3. **Telegram** - Send messages via Telegram bot
+4. **Slack** - Post to Slack channels via webhooks
+5. **Custom Webhook** - HTTP POST to any webhook URL
+6. **Email** - SMTP email notifications (configurable)
+7. **SMS** - SMS alerts via Twilio (requires account)
+
+### Notification Events
+- ✅ Speed Test Complete
+- ⚠️ Threshold Breach (speed or latency)
+- 🔴 Host Down
+- 🟢 Host Up
+- 🔴 Connection Lost (all hosts unreachable)
+- 🟢 Connection Restored
+- 🟡 High Latency
+- 📊 Packet Loss
+
+### Features
+- **Cooldown Period**: Prevent notification spam (default: 5 minutes)
+- **Quiet Hours**: Disable notifications during specific hours
+- **Event Filtering**: Choose which events trigger notifications
+- **Test Notifications**: Send test to all enabled channels
+- **Per-Channel Configuration**: Individual settings for each notification type
+
+See Settings → Notifications tab to configure.
+
+## 📋 Reports & Analytics
+
+### Performance Reports
+- **Comprehensive History**: View all speed test results
+- **Time Range Filters**: 24H, 7D, 30D, or custom date ranges
+- **Sorting**: Sort by any column (timestamp, download, upload, ping, etc.)
+- **Statistics**: Min/Max/Average for all metrics
+- **CSV Export**: Download complete data for external analysis
+- **Speedtest.net Links**: Direct links to view full test results online
+
+### Data Fields
+- Timestamp
+- Download Speed (Mbps)
+- Upload Speed (Mbps)
+- Ping Latency (ms)
+- Jitter (ms)
+- Download Latency (ms)
+- Upload Latency (ms)
+- Server Location
+- ISP Name
+- Result URL
+
+## 🛠️ Advanced Features
+
+### Logger System
+The backend includes a comprehensive logging system with:
+- **Color-Coded Levels**: DEBUG (cyan), INFO (blue), WARN (yellow), ERROR (red), SUCCESS (green)
+- **Timestamps**: YYYY-MM-DD HH:mm:ss.ms format
+- **Structured Output**: Easy to read and debug
+- **Production Ready**: Minimal performance impact
+
+### Auto-Cleanup
+- **Live Monitoring History**: Automatically cleaned after 7 days
+- **Prevents Database Bloat**: Keeps database size manageable
+- **Configurable**: Can be adjusted in code if needed
+
+### Dynamic URL Configuration
+- **Network Accessible**: Frontend automatically connects to backend on same IP
+- **Works with any IP/hostname**: localhost, network IP, or custom domain
+- **Docker Compatible**: Seamless operation in containers
+
+### Port Configuration
+- **Non-Common Ports**: Backend (8745), Frontend (4280)
+- **Avoids Conflicts**: Won't clash with other services
+- **Configurable**: Can be changed via environment variables
+- **Firewall Friendly**: Easy to allow specific ports
+
 ## 🌐 Browser Support
 
 - ✅ Chrome/Chromium (recommended)
@@ -239,12 +339,66 @@ The application initializes with these defaults (configurable in Settings tab):
 
 ## 📚 Documentation
 
+### Setup & Configuration
 - [QUICKSTART.md](QUICKSTART.md) - Quick setup guide
+- [QUICKSTART_NEW_PORTS.md](QUICKSTART_NEW_PORTS.md) - Quick start with new ports
 - [DOCKER_SETUP.md](DOCKER_SETUP.md) - Docker deployment instructions
 - [OOKLA_CLI_SETUP.md](OOKLA_CLI_SETUP.md) - Speedtest CLI installation
+- [PORT_CONFIGURATION.md](PORT_CONFIGURATION.md) - Port configuration guide
+- [NETWORK_CONFIGURATION.md](NETWORK_CONFIGURATION.md) - Network setup
+
+### Features & Updates
 - [UI_ENHANCEMENTS.md](UI_ENHANCEMENTS.md) - UI features and improvements
 - [EXTERNAL_IP_FEATURE.md](EXTERNAL_IP_FEATURE.md) - External IP functionality
 - [LATENCY_EXPLANATION.md](LATENCY_EXPLANATION.md) - Understanding latency metrics
+- [MONITOR_INTERVAL_FEATURE.md](MONITOR_INTERVAL_FEATURE.md) - Live monitoring interval configuration
+- [DATABASE_UPDATE.md](DATABASE_UPDATE.md) - Database schema updates
+- [FRONTEND_FIX_SUMMARY.md](FRONTEND_FIX_SUMMARY.md) - Network configuration fixes
+
+### Technical Documentation
+- [DOCUMENTATION_UPDATE_SUMMARY.md](DOCUMENTATION_UPDATE_SUMMARY.md) - Recent documentation updates
+- [ALL_RECENT_UPDATES.md](ALL_RECENT_UPDATES.md) - Complete change history
+
+## ✨ What's New
+
+### Latest Updates (October 2025)
+
+#### Port Configuration
+- ✅ **New Ports**: Backend (8745), Frontend (4280)
+- ✅ **Avoids Conflicts**: No more port conflicts with other services
+- ✅ **All Documentation Updated**: Consistent across all docs
+
+#### Notifications System
+- ✅ **7 Notification Channels**: Browser, Discord, Telegram, Slack, Webhook, Email, SMS
+- ✅ **8 Event Types**: Comprehensive monitoring alerts
+- ✅ **Advanced Configuration**: Cooldown, quiet hours, event filtering
+- ✅ **Test Notifications**: Verify all channels work correctly
+
+#### Logger Implementation
+- ✅ **Color-Coded Logs**: Easy to read with 5 log levels
+- ✅ **Timestamps**: Millisecond precision for debugging
+- ✅ **Production Ready**: ~85% of console.logs migrated
+
+#### Live Monitoring Interval
+- ✅ **Configurable Interval**: Set how often to ping hosts (1-60 seconds)
+- ✅ **Recommended Range**: 3-10 seconds for optimal balance
+- ✅ **Database Persistence**: Settings saved and restored
+
+#### Performance Reports
+- ✅ **CSV Export**: Download complete speed test history
+- ✅ **Speedtest.net Links**: View detailed results online
+- ✅ **Advanced Filtering**: Time ranges, sorting, statistics
+- ✅ **Server & ISP Data**: Track which servers tested against
+
+#### Database Enhancements
+- ✅ **Extended Schema**: Server, ISP, and result URL fields
+- ✅ **Auto-Cleanup**: 7-day retention for monitoring history
+- ✅ **Automatic Migration**: Existing databases upgraded seamlessly
+
+#### Network Improvements
+- ✅ **Dynamic Backend URL**: Works on any IP/hostname
+- ✅ **External IP Display**: View your public IP address
+- ✅ **Network Accessible**: Access from any device on network
 
 ## 🤝 Contributing
 

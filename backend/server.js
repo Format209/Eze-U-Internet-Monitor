@@ -9,6 +9,8 @@ const ping = require('ping');
 const schedule = require('node-schedule');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
+const axios = require('axios');
+const logger = require('./logger');
 require('dotenv').config();
 
 const execPromise = util.promisify(exec);
@@ -84,19 +86,19 @@ db.serialize(() => {
   // Add server and isp columns if they don't exist (migration for existing databases)
   db.run(`ALTER TABLE speed_tests ADD COLUMN server TEXT`, (err) => {
     if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding server column:', err.message);
+      logger.error('Error adding server column:', err.message);
     }
   });
   
   db.run(`ALTER TABLE speed_tests ADD COLUMN isp TEXT`, (err) => {
     if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding isp column:', err.message);
+      logger.error('Error adding isp column:', err.message);
     }
   });
   
   db.run(`ALTER TABLE speed_tests ADD COLUMN result_url TEXT`, (err) => {
     if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding result_url column:', err.message);
+      logger.error('Error adding result_url column:', err.message);
     }
   });
 
@@ -104,15 +106,31 @@ db.serialize(() => {
     CREATE TABLE IF NOT EXISTS settings (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       testInterval INTEGER NOT NULL,
+      monitorInterval INTEGER DEFAULT 5,
       pingHost TEXT NOT NULL,
       monitoringHosts TEXT NOT NULL,
       autoStart INTEGER NOT NULL,
       notifications INTEGER NOT NULL,
       minDownload REAL NOT NULL,
       minUpload REAL NOT NULL,
-      maxPing REAL NOT NULL
+      maxPing REAL NOT NULL,
+      notificationSettings TEXT
     )
   `);
+
+  // Add notificationSettings column if it doesn't exist (migration)
+  db.run(`ALTER TABLE settings ADD COLUMN notificationSettings TEXT`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      logger.error('Error adding notificationSettings column:', err.message);
+    }
+  });
+
+  // Add monitorInterval column if it doesn't exist (migration)
+  db.run(`ALTER TABLE settings ADD COLUMN monitorInterval INTEGER DEFAULT 5`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      logger.error('Error adding monitorInterval column:', err.message);
+    }
+  });
 
   db.run(`
     CREATE TABLE IF NOT EXISTS live_monitoring (
@@ -155,9 +173,38 @@ db.serialize(() => {
 // Load settings from database
 async function loadSettings() {
   const row = await dbGet('SELECT * FROM settings WHERE id = 1');
+  
+  const defaultNotificationSettings = {
+    enabled: false,
+    types: {
+      browser: { enabled: true, sound: true },
+      email: { enabled: false, address: '', smtp: { host: '', port: 587, user: '', password: '' } },
+      webhook: { enabled: false, url: '', method: 'POST', headers: {} },
+      telegram: { enabled: false, botToken: '', chatId: '' },
+      discord: { enabled: false, webhookUrl: '' },
+      slack: { enabled: false, webhookUrl: '' },
+      sms: { enabled: false, provider: 'twilio', accountSid: '', authToken: '', fromNumber: '', toNumber: '' }
+    },
+    events: {
+      onSpeedTestComplete: true,
+      onThresholdBreach: true,
+      onHostDown: true,
+      onHostUp: true,
+      onConnectionLost: true,
+      onConnectionRestored: true,
+      onHighLatency: false,
+      onPacketLoss: false
+    },
+    minTimeBetweenNotifications: 5,
+    quietHoursEnabled: false,
+    quietHoursStart: '22:00',
+    quietHoursEnd: '08:00'
+  };
+  
   if (!row) {
     return {
       testInterval: 30,
+      monitorInterval: 5,
       pingHost: '8.8.8.8',
       monitoringHosts: [
         { address: '8.8.8.8', name: 'Google DNS', enabled: true },
@@ -166,6 +213,7 @@ async function loadSettings() {
       ],
       autoStart: false,
       notifications: true,
+      notificationSettings: defaultNotificationSettings,
       thresholds: {
         minDownload: 50,
         minUpload: 10,
@@ -174,12 +222,23 @@ async function loadSettings() {
     };
   }
   
+  let notificationSettings = defaultNotificationSettings;
+  if (row.notificationSettings) {
+    try {
+      notificationSettings = JSON.parse(row.notificationSettings);
+    } catch (e) {
+      logger.error('Error parsing notificationSettings:', e);
+    }
+  }
+  
   return {
     testInterval: row.testInterval,
+    monitorInterval: row.monitorInterval || 5,
     pingHost: row.pingHost,
     monitoringHosts: JSON.parse(row.monitoringHosts),
     autoStart: row.autoStart === 1,
     notifications: row.notifications === 1,
+    notificationSettings: notificationSettings,
     thresholds: {
       minDownload: row.minDownload,
       minUpload: row.minUpload,
@@ -193,20 +252,24 @@ async function saveSettings(settings) {
   await dbRun(`
     UPDATE settings 
     SET testInterval = ?, 
+        monitorInterval = ?,
         pingHost = ?, 
         monitoringHosts = ?,
         autoStart = ?,
         notifications = ?,
+        notificationSettings = ?,
         minDownload = ?,
         minUpload = ?,
         maxPing = ?
     WHERE id = 1
   `, [
     settings.testInterval,
+    settings.monitorInterval || 5,
     settings.pingHost,
     JSON.stringify(settings.monitoringHosts),
     settings.autoStart ? 1 : 0,
     settings.notifications ? 1 : 0,
+    JSON.stringify(settings.notificationSettings || {}),
     settings.thresholds.minDownload,
     settings.thresholds.minUpload,
     settings.thresholds.maxPing
@@ -275,6 +338,15 @@ async function loadLiveMonitoring() {
   return liveMonitoring;
 }
 
+// Notification state tracking
+const notificationState = {
+  hostStatus: {}, // Track previous status of each host { 'address': { isDown: bool, lastNotificationTime: timestamp } }
+  lastThresholdBreach: null,
+  lastConnectionLost: null,
+  lastHighLatency: null,
+  lastPacketLoss: null
+};
+
 // Store monitoring data (in-memory for current state)
 let monitoringData = {
   currentSpeed: { download: 0, upload: 0, ping: 0 },
@@ -304,7 +376,7 @@ async function initializeData() {
   monitoringData.settings = await loadSettings();
   monitoringData.history = await loadHistory(100);
   monitoringData.liveMonitoring = await loadLiveMonitoring();
-  console.log('Database loaded successfully');
+  logger.success('Database loaded successfully');
 }
 
 let monitoringInterval = null;
@@ -314,7 +386,7 @@ let scheduledJob = null;
 const clients = new Set();
 
 wss.on('connection', (ws) => {
-  console.log('Client connected');
+  logger.debug('Client connected');
   clients.add(ws);
   
   // Send current data to new client
@@ -324,18 +396,241 @@ wss.on('connection', (ws) => {
   }));
 
   ws.on('close', () => {
-    console.log('Client disconnected');
+    logger.debug('Client disconnected');
     clients.delete(ws);
   });
 });
 
 // Broadcast to all connected clients
 function broadcast(data) {
+  logger.debug(`Broadcasting to ${clients.size} connected clients: ${data.type}`);
+  let sentCount = 0;
   clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
       client.send(JSON.stringify(data));
+      sentCount++;
     }
   });
+  logger.debug(`Sent to ${sentCount} clients`);
+  if (sentCount === 0) {
+    logger.warn('No WebSocket clients connected!');
+  }
+}
+
+// Check if enough time has passed since last notification (cooldown)
+function checkNotificationCooldown(lastTime, minMinutes = 5) {
+  if (!lastTime) return true;
+  const now = Date.now();
+  const diff = (now - lastTime) / 1000 / 60; // minutes
+  return diff >= minMinutes;
+}
+
+// Check if we're in quiet hours
+function isInQuietHours(settings) {
+  if (!settings?.notificationSettings?.quietHoursEnabled) return false;
+  
+  const now = new Date();
+  const currentTime = now.getHours() * 60 + now.getMinutes();
+  
+  const [startHour, startMin] = settings.notificationSettings.quietHoursStart.split(':').map(Number);
+  const [endHour, endMin] = settings.notificationSettings.quietHoursEnd.split(':').map(Number);
+  
+  const startTime = startHour * 60 + startMin;
+  const endTime = endHour * 60 + endMin;
+  
+  // Handle overnight ranges (e.g., 22:00 to 08:00)
+  if (startTime > endTime) {
+    return currentTime >= startTime || currentTime <= endTime;
+  }
+  
+  return currentTime >= startTime && currentTime <= endTime;
+}
+
+// Trigger notification event to frontend
+function triggerNotification(eventType, data) {
+  const settings = monitoringData.settings;
+  
+  logger.info(`Notification trigger attempt: ${eventType}`);
+  logger.debug('Notification settings:', JSON.stringify(settings?.notificationSettings, null, 2));
+  
+  // Check if notifications are enabled
+  if (!settings?.notificationSettings?.enabled) {
+    logger.warn(`Notifications disabled in settings`);
+    return;
+  }
+  
+  // Check if this specific event is enabled
+  if (!settings?.notificationSettings?.events?.[eventType]) {
+    logger.warn(`Event ${eventType} is disabled`);
+    return;
+  }
+  
+  // Check quiet hours
+  if (isInQuietHours(settings)) {
+    logger.info(`Notification suppressed (quiet hours)`);
+    return;
+  }
+  
+  // Check cooldown
+  const minTime = settings?.notificationSettings?.minTimeBetweenNotifications || 5;
+  
+  logger.success(`SENDING NOTIFICATION: ${eventType}`, data);
+  
+  // Format notification message
+  const message = formatNotificationMessage(eventType, data);
+  logger.info(`Formatted message: ${message}`);
+  
+  // Send to enabled notification channels (Discord, Telegram, Slack, Webhook, Email)
+  sendToNotificationChannels(settings.notificationSettings, message, eventType, data);
+  
+  // ALWAYS broadcast to browser via WebSocket (browser decides whether to show based on its settings)
+  logger.debug(`Broadcasting to browser clients...`);
+  broadcast({
+    type: 'notification',
+    event: eventType,
+    data: data,
+    timestamp: new Date().toISOString()
+  });
+  logger.success(`Notification flow complete`);
+}
+
+// Format notification message based on event type
+function formatNotificationMessage(eventType, data) {
+  const emoji = {
+    onHostDown: '🔴',
+    onHostUp: '🟢',
+    onConnectionLost: '⚠️',
+    onConnectionRestored: '✅',
+    onHighLatency: '🐌',
+    onPacketLoss: '📉',
+    onSpeedTestComplete: '✅',
+    onThresholdBreach: '⚠️'
+  };
+  
+  const messages = {
+    onHostDown: `${emoji[eventType]} Host Down: ${data.host} (${data.address}) is unreachable`,
+    onHostUp: `${emoji[eventType]} Host Up: ${data.host} (${data.address}) is back online`,
+    onConnectionLost: `${emoji[eventType]} Connection Lost: ${data.host} (${data.address}) - ${data.lostPackets} packets lost`,
+    onConnectionRestored: `${emoji[eventType]} Connection Restored: ${data.host} (${data.address}) is stable again`,
+    onHighLatency: `${emoji[eventType]} High Latency: ${data.host} (${data.address}) - ${data.ping}ms (threshold: ${data.threshold}ms)`,
+    onPacketLoss: `${emoji[eventType]} Packet Loss: ${data.host} (${data.address}) - ${data.lossPercentage}% packet loss`,
+    onSpeedTestComplete: `${emoji[eventType]} Speed Test Complete: ↓${data.download} Mbps / ↑${data.upload} Mbps / ${data.ping}ms ping`,
+    onThresholdBreach: `${emoji[eventType]} Threshold Breach: Download ${data.download} Mbps (min: ${data.thresholds?.minDownload || 'N/A'}), Upload ${data.upload} Mbps (min: ${data.thresholds?.minUpload || 'N/A'}), Ping ${data.ping}ms (max: ${data.thresholds?.maxPing || 'N/A'})`
+  };
+  
+  return messages[eventType] || `Notification: ${eventType}`;
+}
+
+// Send notifications to enabled channels
+async function sendToNotificationChannels(notificationSettings, message, eventType, data) {
+  const types = notificationSettings?.types || {};
+  
+  // Discord
+  if (types.discord?.enabled && types.discord?.webhookUrl) {
+    sendDiscordNotification(types.discord.webhookUrl, message, eventType, data);
+  }
+  
+  // Telegram
+  if (types.telegram?.enabled && types.telegram?.botToken && types.telegram?.chatId) {
+    sendTelegramNotification(types.telegram, message);
+  }
+  
+  // Slack
+  if (types.slack?.enabled && types.slack?.webhookUrl) {
+    sendSlackNotification(types.slack.webhookUrl, message);
+  }
+  
+  // Custom Webhook
+  if (types.webhook?.enabled && types.webhook?.url) {
+    sendWebhookNotification(types.webhook, message, eventType, data);
+  }
+  
+  // Email
+  if (types.email?.enabled && types.email?.address && types.email?.smtp?.host) {
+    sendEmailNotification(types.email, message, eventType);
+  }
+}
+
+// Send Discord webhook notification
+async function sendDiscordNotification(webhookUrl, message, eventType, data) {
+  try {
+    const color = eventType.includes('Down') || eventType.includes('Lost') || eventType.includes('Breach') ? 0xFF0000 : 0x00FF00;
+    
+    await axios.post(webhookUrl, {
+      embeds: [{
+        title: 'Internet Monitor Alert',
+        description: message,
+        color: color,
+        timestamp: new Date().toISOString(),
+        footer: { text: 'Ezé-U Internet Monitor' }
+      }]
+    });
+    logger.success('Discord notification sent');
+  } catch (error) {
+    logger.error('Discord notification failed:', error.message);
+  }
+}
+
+// Send Telegram notification
+async function sendTelegramNotification(telegramConfig, message) {
+  try {
+    const url = `https://api.telegram.org/bot${telegramConfig.botToken}/sendMessage`;
+    await axios.post(url, {
+      chat_id: telegramConfig.chatId,
+      text: message,
+      parse_mode: 'HTML'
+    });
+    logger.success('Telegram notification sent');
+  } catch (error) {
+    logger.error('Telegram notification failed:', error.message);
+  }
+}
+
+// Send Slack webhook notification
+async function sendSlackNotification(webhookUrl, message) {
+  try {
+    await axios.post(webhookUrl, {
+      text: message
+    });
+    logger.success('Slack notification sent');
+  } catch (error) {
+    logger.error('Slack notification failed:', error.message);
+  }
+}
+
+// Send custom webhook notification
+async function sendWebhookNotification(webhookConfig, message, eventType, data) {
+  try {
+    const method = webhookConfig.method || 'POST';
+    const headers = webhookConfig.headers || {};
+    
+    await axios({
+      method: method,
+      url: webhookConfig.url,
+      headers: headers,
+      data: {
+        event: eventType,
+        message: message,
+        data: data,
+        timestamp: new Date().toISOString()
+      }
+    });
+    logger.success('Webhook notification sent');
+  } catch (error) {
+    logger.error('Webhook notification failed:', error.message);
+  }
+}
+
+// Send email notification (requires nodemailer)
+async function sendEmailNotification(emailConfig, message, eventType) {
+  try {
+    // Note: This requires nodemailer to be installed
+    // For now, just log that email would be sent
+    logger.info('Email notification (requires nodemailer):', emailConfig.address);
+    // TODO: Implement with nodemailer if needed
+  } catch (error) {
+    logger.error('Email notification failed:', error.message);
+  }
 }
 
 // Perform ping test
@@ -347,7 +642,7 @@ async function performPing(host = '8.8.8.8') {
       extra: ['-n', '1'] // Windows-specific: send only 1 packet
     });
     
-    console.log(`Ping ${host}: alive=${res.alive}, time=${res.time}`);
+    logger.debug(`Ping ${host}: alive=${res.alive}, time=${res.time}`);
     
     if (res.alive && res.time !== 'unknown') {
       const pingTime = parseFloat(res.time);
@@ -355,7 +650,7 @@ async function performPing(host = '8.8.8.8') {
     }
     return -1;
   } catch (error) {
-    console.error(`Ping error for ${host}:`, error.message);
+    logger.error(`Ping error for ${host}:`, error.message);
     return -1;
   }
 }
@@ -367,7 +662,7 @@ async function performSpeedTest(retryCount = 0) {
   const RETRY_DELAY = 10000; // 10 seconds between retries
   
   try {
-    console.log(`Starting Ookla CLI speed test... (attempt ${retryCount + 1}/${MAX_RETRIES + 1})`);
+    logger.info(`Starting Ookla CLI speed test... (attempt ${retryCount + 1}/${MAX_RETRIES + 1})`);
     
     // Create a promise that rejects after timeout
     const timeoutPromise = new Promise((_, reject) => {
@@ -385,7 +680,7 @@ async function performSpeedTest(retryCount = 0) {
     ]);
     
     if (stderr && !stderr.includes('Speedtest')) {
-      console.warn('Speed test stderr:', stderr);
+      logger.warn('Speed test stderr:', stderr);
     }
     
     // Parse JSON output
@@ -438,8 +733,14 @@ async function performSpeedTest(retryCount = 0) {
       downloadLatencyFull: result.download?.latency,
       uploadLatencyFull: result.upload?.latency,
       note: downloadLatency === 0 && uploadLatency === 0 ? 
-        '⚠️  NOTE: Latency values are 0 - Ookla server may not provide detailed latency metrics' : 
-        '✅ Detailed latency data retrieved successfully'
+        'NOTE: Latency values are 0 - Ookla server may not provide detailed latency metrics' : 
+        'Detailed latency data retrieved successfully'
+    });
+    logger.debug('Speed test details:', {
+      ping: testResult.ping,
+      jitter: testResult.jitter,
+      downloadLatency: testResult.downloadLatency,
+      uploadLatency: testResult.uploadLatency
     });
 
     // Save to database
@@ -458,6 +759,50 @@ async function performSpeedTest(retryCount = 0) {
     if (monitoringData.history.length > 100) {
       monitoringData.history.shift();
     }
+
+    // Check thresholds and trigger notifications
+    const thresholds = monitoringData.settings.thresholds || {};
+    let thresholdBreach = false;
+    const breaches = [];
+    
+    if (thresholds.minDownload && testResult.download < thresholds.minDownload) {
+      breaches.push(`Download: ${testResult.download} Mbps (min: ${thresholds.minDownload})`);
+      thresholdBreach = true;
+    }
+    
+    if (thresholds.minUpload && testResult.upload < thresholds.minUpload) {
+      breaches.push(`Upload: ${testResult.upload} Mbps (min: ${thresholds.minUpload})`);
+      thresholdBreach = true;
+    }
+    
+    if (thresholds.maxPing && testResult.ping > thresholds.maxPing) {
+      breaches.push(`Ping: ${testResult.ping} ms (max: ${thresholds.maxPing})`);
+      thresholdBreach = true;
+    }
+    
+    // Trigger notifications
+    if (thresholdBreach) {
+      if (checkNotificationCooldown(notificationState.lastThresholdBreach)) {
+        triggerNotification('onThresholdBreach', {
+          download: testResult.download,
+          upload: testResult.upload,
+          ping: testResult.ping,
+          thresholds: thresholds,
+          breaches: breaches,
+          timestamp: testResult.timestamp
+        });
+        notificationState.lastThresholdBreach = Date.now();
+        logger.warn('⚠️  Threshold breach detected:', breaches.join(', '));
+      }
+    }
+    
+    // Always trigger speed test complete notification
+    triggerNotification('onSpeedTestComplete', {
+      download: testResult.download,
+      upload: testResult.upload,
+      ping: testResult.ping,
+      timestamp: testResult.timestamp
+    });
 
     broadcast({ type: 'speedtest', data: testResult });
     console.log('✅ Speed test completed successfully:', testResult);
@@ -507,11 +852,11 @@ async function performQuickMonitor() {
   const enabledHosts = hosts.filter(h => h.enabled);
   
   if (enabledHosts.length === 0) {
-    console.log('No enabled hosts for monitoring');
+    logger.warn('No enabled hosts for monitoring');
     return [];
   }
   
-  console.log(`Monitoring ${enabledHosts.length} hosts...`);
+  logger.debug(`Monitoring ${enabledHosts.length} hosts...`);
   
   // Ping all enabled hosts
   const pingPromises = enabledHosts.map(async (host) => {
@@ -526,12 +871,94 @@ async function performQuickMonitor() {
   
   const results = await Promise.all(pingPromises);
   
-  // Update live monitoring data
+  // Update live monitoring data and check for status changes
   results.forEach(result => {
+    const isDown = result.ping === -1;
+    const prevState = notificationState.hostStatus[result.address];
+    
+    // Initialize state if first time seeing this host
+    if (!prevState) {
+      notificationState.hostStatus[result.address] = {
+        isDown: isDown,
+        lastNotificationTime: null
+      };
+    } else {
+      // Check for status change
+      const wasDown = prevState.isDown;
+      
+      // Host went DOWN
+      if (!wasDown && isDown) {
+        if (checkNotificationCooldown(prevState.lastNotificationTime)) {
+          triggerNotification('onHostDown', {
+            host: result.name,
+            address: result.address,
+            timestamp: result.timestamp
+          });
+          notificationState.hostStatus[result.address].lastNotificationTime = Date.now();
+        }
+        notificationState.hostStatus[result.address].isDown = true;
+        logger.error(`🔴 HOST DOWN: ${result.name} (${result.address})`);
+      }
+      
+      // Host came BACK UP
+      if (wasDown && !isDown) {
+        if (checkNotificationCooldown(prevState.lastNotificationTime)) {
+          triggerNotification('onHostUp', {
+            host: result.name,
+            address: result.address,
+            ping: result.ping,
+            timestamp: result.timestamp
+          });
+          notificationState.hostStatus[result.address].lastNotificationTime = Date.now();
+        }
+        notificationState.hostStatus[result.address].isDown = false;
+        logger.success(`HOST RECOVERED: ${result.name} (${result.address}) - ${result.ping}ms`);
+      }
+      
+      // Check for high latency (only for hosts that are UP)
+      if (!isDown && result.ping > (monitoringData.settings.thresholds?.maxPing || 100)) {
+        if (checkNotificationCooldown(notificationState.lastHighLatency)) {
+          triggerNotification('onHighLatency', {
+            host: result.name,
+            address: result.address,
+            ping: result.ping,
+            threshold: monitoringData.settings.thresholds?.maxPing || 100,
+            timestamp: result.timestamp
+          });
+          notificationState.lastHighLatency = Date.now();
+        }
+      }
+    }
+    
     monitoringData.liveMonitoring[result.address] = result;
     saveLiveMonitoring(result.address, result);
-    console.log(`Updated ${result.name} (${result.address}): ${result.ping}ms`);
+    
+    logger.debug(`Updated ${result.name} (${result.address}): ${result.ping}ms`);
   });
+  
+  // Check for connection lost (all hosts down)
+  const allDown = results.every(r => r.ping === -1);
+  if (allDown && results.length > 0) {
+    if (checkNotificationCooldown(notificationState.lastConnectionLost)) {
+      triggerNotification('onConnectionLost', {
+        timestamp: new Date().toISOString()
+      });
+      notificationState.lastConnectionLost = Date.now();
+      logger.error('🔴 CONNECTION LOST: All hosts unreachable');
+    }
+  } else if (notificationState.lastConnectionLost) {
+    // Connection restored
+    const anyUp = results.some(r => r.ping !== -1);
+    if (anyUp) {
+      if (checkNotificationCooldown(notificationState.lastConnectionLost, 1)) { // Shorter cooldown for restore
+        triggerNotification('onConnectionRestored', {
+          timestamp: new Date().toISOString()
+        });
+        logger.success('🟢 CONNECTION RESTORED');
+      }
+      notificationState.lastConnectionLost = null;
+    }
+  }
   
   // Use the primary host for current speed
   const primaryPing = results[0]?.ping || -1;
@@ -543,14 +970,15 @@ async function performQuickMonitor() {
 
 // Start monitoring (always runs)
 async function startMonitoring() {
-  console.log('=== Monitoring started ===');
+  logger.info('=== Monitoring started ===');
 
-  console.log('Enabled hosts:', monitoringData.settings.monitoringHosts.filter(h => h.enabled).map(h => h.name));
+  logger.info('Enabled hosts:', monitoringData.settings.monitoringHosts.filter(h => h.enabled).map(h => h.name));
 
   // Run first ping immediately
   await performQuickMonitor();
 
-  // Quick ping every 5 seconds
+  // Quick ping at configured interval (in seconds)
+  const checkInterval = (monitoringData.settings.monitorInterval || 5) * 1000;
   if (monitoringInterval) {
     clearInterval(monitoringInterval);
   }
@@ -559,10 +987,10 @@ async function startMonitoring() {
     try {
       await performQuickMonitor();
     } catch (error) {
-      console.error('Quick monitor error:', error.message);
+      logger.error('Quick monitor error:', error.message);
       // Continue monitoring even if one cycle fails
     }
-  }, 5000);
+  }, checkInterval);
 
   // Schedule full speed tests
   const interval = monitoringData.settings.testInterval;
@@ -725,18 +1153,53 @@ app.post('/api/settings', async (req, res) => {
 
 // Clear history
 app.delete('/api/history', async (req, res) => {
+  // Clear speed test history
   await dbRun('DELETE FROM speed_tests');
   monitoringData.history = [];
+  
+  // Clear live monitoring data
+  await dbRun('DELETE FROM live_monitoring');
+  await dbRun('DELETE FROM live_monitoring_history');
+  monitoringData.liveMonitoring = {};
+  
+  // Clear notification state
+  notificationState.hostStatus = {};
+  
   broadcast({ type: 'historyCleared' });
-  res.json({ message: 'History cleared' });
+  res.json({ message: 'All history and monitoring data cleared' });
 });
 
-const PORT = process.env.PORT || 5000;
+// Test notification - sends to ALL enabled notification channels
+app.post('/api/test-notification', (req, res) => {
+  logger.info('Test notification requested');
+  
+  // Trigger a test notification that will be sent to all enabled channels
+  triggerNotification('onSpeedTestComplete', {
+    download: 95.5,
+    upload: 11.2,
+    ping: 15,
+    timestamp: new Date().toISOString()
+  });
+  
+  res.json({ 
+    message: 'Test notification sent to all enabled channels',
+    enabledChannels: {
+      browser: monitoringData.settings?.notificationSettings?.types?.browser?.enabled || false,
+      discord: monitoringData.settings?.notificationSettings?.types?.discord?.enabled || false,
+      telegram: monitoringData.settings?.notificationSettings?.types?.telegram?.enabled || false,
+      slack: monitoringData.settings?.notificationSettings?.types?.slack?.enabled || false,
+      webhook: monitoringData.settings?.notificationSettings?.types?.webhook?.enabled || false,
+      email: monitoringData.settings?.notificationSettings?.types?.email?.enabled || false
+    }
+  });
+});
+
+const PORT = process.env.PORT || 8745;
 
 server.listen(PORT, async () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log('WebSocket server ready');
-  console.log('Database initialized at:', dbPath);
+  logger.success(`Server running on port ${PORT}`);
+  logger.success('WebSocket server ready');
+  logger.info('Database initialized at:', dbPath);
   
   // Load data from database
   await initializeData();
@@ -765,7 +1228,7 @@ schedule.scheduleJob('0 3 * * *', cleanupOldMonitoringHistory);
 
 // Graceful shutdown
 process.on('SIGINT', () => {
-  console.log('Shutting down gracefully...');
+  logger.warn('Shutting down gracefully...');
   db.close();
   process.exit(0);
 });

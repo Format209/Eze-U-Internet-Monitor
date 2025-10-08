@@ -7,7 +7,7 @@ services:
       dockerfile: Dockerfile
     container_name: eze-u-internet-monitor
     ports:
-      - "5000:5000"
+      - "8745:8745"
     volumes:
       # Persist SQLite database
       - ./backend/data:/app/backend/data
@@ -15,7 +15,7 @@ services:
       - ./backend/monitoring.db:/app/backend/monitoring.db
     environment:
       - NODE_ENV=production
-      - PORT=5000
+      - PORT=8745
       - TZ=Africa/Johannesburg  # Set to your timezone
     restart: unless-stopped
     networks:

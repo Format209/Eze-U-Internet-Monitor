@@ -67,7 +67,7 @@ Write-Host ""
 Write-Host "=========================================" -ForegroundColor Cyan
 Write-Host "✅ Ezé-U Internet Monitor is now running!" -ForegroundColor Green
 Write-Host ""
-Write-Host "🌐 Access the application at: http://localhost:5000" -ForegroundColor Yellow
+Write-Host "🌐 Access the application at: http://localhost:8745" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "Useful commands:" -ForegroundColor Cyan
 Write-Host "  View logs:      docker-compose logs -f" -ForegroundColor Gray

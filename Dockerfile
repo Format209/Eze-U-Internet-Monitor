@@ -54,15 +54,15 @@ RUN mkdir -p /app/backend/data
 RUN speedtest --accept-license --accept-gdpr || true
 
 # Expose port
-EXPOSE 5000
+EXPOSE 8745
 
 # Set environment variables
 ENV NODE_ENV=production
-ENV PORT=5000
+ENV PORT=8745
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD curl -f http://localhost:5000/api/status || exit 1
+  CMD curl -f http://localhost:8745/api/status || exit 1
 
 # Start the application
 CMD ["node", "server.js"]

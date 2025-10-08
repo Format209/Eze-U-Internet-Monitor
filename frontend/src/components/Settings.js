@@ -7,7 +7,7 @@ import './Settings.css';
 const getBackendUrl = () => {
   const protocol = window.location.protocol;
   const hostname = window.location.hostname;
-  return `${protocol}//${hostname}:5000`;
+  return `${protocol}//${hostname}:8745`;
 };
 
 const BACKEND_URL = getBackendUrl();
@@ -16,6 +16,7 @@ function Settings({ settings, updateSettings }) {
   const [activeTab, setActiveTab] = useState('monitoring');
   const [localSettings, setLocalSettings] = useState({
     ...settings,
+    monitorInterval: settings.monitorInterval || 5,
     monitoringHosts: settings.monitoringHosts || [
       { address: '8.8.8.8', name: 'Google DNS', enabled: true },
       { address: '1.1.1.1', name: 'Cloudflare DNS', enabled: true },
@@ -438,6 +439,22 @@ function Settings({ settings, updateSettings }) {
               onChange={handleChange}
               min="1"
               max="1440"
+            />
+          </div>
+
+          <div className="setting-item">
+            <label htmlFor="monitorInterval">
+              Live Monitoring Interval (seconds)
+              <span className="help-text">How often to check host connectivity (recommended: 3-10 seconds)</span>
+            </label>
+            <input
+              type="number"
+              id="monitorInterval"
+              name="monitorInterval"
+              value={localSettings.monitorInterval || 5}
+              onChange={handleChange}
+              min="1"
+              max="60"
             />
           </div>
         </div>
@@ -1135,34 +1152,31 @@ function Settings({ settings, updateSettings }) {
                 </div>
 
                 {/* Test Notification Button */}
-                {localSettings.notificationSettings?.enabled && localSettings.notificationSettings?.types?.browser?.enabled && (
+                {localSettings.notificationSettings?.enabled && (
                   <div className="notification-section">
                     <button 
                       className="test-notification-btn"
                       onClick={async () => {
-                        if ('Notification' in window) {
-                          if (Notification.permission === 'granted') {
-                            new Notification('Test Notification', {
-                              body: 'Notifications are working correctly!',
-                              icon: '/favicon.svg'
-                            });
-                            if (localSettings.notificationSettings?.types?.browser?.sound) {
-                              const audio = new Audio('/notification.mp3');
-                              audio.play().catch(() => {});
-                            }
-                          } else if (Notification.permission !== 'denied') {
-                            const permission = await Notification.requestPermission();
-                            if (permission === 'granted') {
-                              new Notification('Test Notification', {
-                                body: 'Notifications are working correctly!',
-                                icon: '/favicon.svg'
-                              });
-                              if (localSettings.notificationSettings?.types?.browser?.sound) {
-                                const audio = new Audio('/notification.mp3');
-                                audio.play().catch(() => {});
-                              }
-                            }
+                        try {
+                          const response = await fetch('http://localhost:8745/api/test-notification', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' }
+                          });
+                          const result = await response.json();
+                          
+                          // Show which channels were tested
+                          const enabledChannels = Object.entries(result.enabledChannels || {})
+                            .filter(([_, enabled]) => enabled)
+                            .map(([channel]) => channel.charAt(0).toUpperCase() + channel.slice(1));
+                          
+                          if (enabledChannels.length > 0) {
+                            alert(`✅ Test notification sent to: ${enabledChannels.join(', ')}\n\nCheck each channel to verify.`);
+                          } else {
+                            alert('⚠️ No notification channels are enabled. Please enable at least one channel in the settings above.');
                           }
+                        } catch (error) {
+                          console.error('Failed to send test notification:', error);
+                          alert('❌ Failed to send test notification. Make sure the backend is running.');
                         }
                       }}
                     >
@@ -1170,7 +1184,7 @@ function Settings({ settings, updateSettings }) {
                       Send Test Notification
                     </button>
                     <p className="notification-hint">
-                      Test browser notifications. You may need to grant permission first.
+                      Test ALL enabled notification channels (Browser, Discord, Telegram, Slack, etc.)
                     </p>
                   </div>
                 )}

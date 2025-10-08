@@ -10,8 +10,8 @@ const getBackendUrl = () => {
   const protocol = window.location.protocol;
   const hostname = window.location.hostname;
   
-  // Backend is always on port 5000
-  return `${protocol}//${hostname}:5000`;
+  // Backend is always on port 8745
+  return `${protocol}//${hostname}:8745`;
 };
 
 const BACKEND_URL = getBackendUrl();
@@ -25,6 +25,7 @@ function App() {
   const [liveMonitoring, setLiveMonitoring] = useState({});
   const [settings, setSettings] = useState({
     testInterval: 30,
+    monitorInterval: 5,
     pingHost: '8.8.8.8',
     monitoringHosts: [
       { address: '8.8.8.8', name: 'Google DNS', enabled: true },
@@ -52,6 +53,119 @@ function App() {
     }
   }, []);
 
+  // Handle notifications from backend
+  const handleNotification = useCallback((eventType, data) => {
+    console.log('🔔 Notification received:', eventType, data);
+    console.log('   Settings:', {
+      notificationsEnabled: settings?.notificationSettings?.enabled,
+      browserEnabled: settings?.notificationSettings?.types?.browser?.enabled,
+      soundEnabled: settings?.notificationSettings?.types?.browser?.sound,
+      permission: typeof Notification !== 'undefined' ? Notification.permission : 'not supported'
+    });
+    
+    // Check if browser notifications are enabled in settings
+    if (!settings?.notificationSettings?.enabled) {
+      console.log('   ❌ Notifications disabled in settings');
+      return;
+    }
+    if (!settings?.notificationSettings?.types?.browser?.enabled) {
+      console.log('   ❌ Browser notifications disabled in settings');
+      return;
+    }
+    
+    // Build notification content based on event type
+    let title = '';
+    let body = '';
+    let icon = '/favicon.svg';
+    
+    switch (eventType) {
+      case 'onSpeedTestComplete':
+        title = 'Speed Test Complete';
+        body = `Download: ${data.download} Mbps | Upload: ${data.upload} Mbps | Ping: ${data.ping} ms`;
+        break;
+      
+      case 'onThresholdBreach':
+        title = '⚠️ Speed Threshold Breach';
+        body = data.breaches.join('\n');
+        break;
+      
+      case 'onHostDown':
+        title = '🔴 Host Down';
+        body = `${data.host} (${data.address}) is unreachable`;
+        break;
+      
+      case 'onHostUp':
+        title = '🟢 Host Recovered';
+        body = `${data.host} (${data.address}) is back online - ${data.ping}ms`;
+        break;
+      
+      case 'onConnectionLost':
+        title = '🔴 Connection Lost';
+        body = 'All monitored hosts are unreachable';
+        break;
+      
+      case 'onConnectionRestored':
+        title = '🟢 Connection Restored';
+        body = 'Internet connection has been restored';
+        break;
+      
+      case 'onHighLatency':
+        title = '⚠️ High Latency Detected';
+        body = `${data.host}: ${data.ping}ms (threshold: ${data.threshold}ms)`;
+        break;
+      
+      case 'onPacketLoss':
+        title = '⚠️ Packet Loss Detected';
+        body = `${data.host}: ${data.packetLoss}% packet loss`;
+        break;
+      
+      default:
+        return;
+    }
+    
+    console.log('   📢 Attempting to show notification:', { title, body });
+    
+    // Show browser notification
+    if ('Notification' in window && Notification.permission === 'granted') {
+      console.log('   ✅ Showing browser notification');
+      const notification = new Notification(title, {
+        body: body,
+        icon: icon,
+        badge: icon,
+        tag: eventType,
+        requireInteraction: false
+      });
+      
+      // Play sound if enabled
+      if (settings?.notificationSettings?.types?.browser?.sound) {
+        try {
+          const audio = new Audio('/notification.mp3');
+          audio.play().catch(err => console.log('Could not play notification sound:', err));
+        } catch (err) {
+          console.log('Notification sound not available');
+        }
+      }
+      
+      // Auto-close after 5 seconds
+      setTimeout(() => notification.close(), 5000);
+    } else if ('Notification' in window && Notification.permission === 'default') {
+      console.log('   ⚠️  Notification permission not granted, requesting...');
+      // Request permission if not yet granted
+      Notification.requestPermission().then(permission => {
+        if (permission === 'granted') {
+          console.log('   ✅ Permission granted, showing notification');
+          handleNotification(eventType, data);
+        } else {
+          console.log('   ❌ Permission denied');
+        }
+      });
+    } else if ('Notification' in window && Notification.permission === 'denied') {
+      console.log('   ❌ Browser notifications are blocked. Enable in browser settings.');
+    } else {
+      console.log('   ❌ Browser does not support notifications');
+    }
+  }, [settings]);
+
   // WebSocket connection
   useEffect(() => {
     const connectWebSocket = () => {
@@ -64,6 +178,7 @@ function App() {
 
       websocket.onmessage = (event) => {
         const message = JSON.parse(event.data);
+        console.log(`📨 WebSocket message received:`, message.type, message);
         
         switch (message.type) {
           case 'initial':
@@ -98,6 +213,9 @@ function App() {
             break;
           case 'historyCleared':
             setHistory([]);
+            break;
+          case 'notification':
+            handleNotification(message.event, message.data);
             break;
           default:
             break;

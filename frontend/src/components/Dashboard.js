@@ -10,8 +10,8 @@ const getBackendUrl = () => {
   const protocol = window.location.protocol;
   const hostname = window.location.hostname;
   
-  // Backend is always on port 5000
-  return `${protocol}//${hostname}:5000`;
+  // Backend is always on port 8745
+  return `${protocol}//${hostname}:8745`;
 };
 
 const BACKEND_URL = getBackendUrl();
@@ -175,7 +175,20 @@ function Dashboard({ currentSpeed, history, isMonitoring, liveMonitoring, toggle
         return history;
     }
 
-    return history.filter(item => new Date(item.timestamp) >= cutoffTime);
+    const filtered = history.filter(item => new Date(item.timestamp) >= cutoffTime);
+    
+    // Debug logging
+    console.log(`Time Range: ${timeRange}`);
+    console.log(`Cutoff Time: ${cutoffTime.toISOString()}`);
+    console.log(`Current Time: ${now.toISOString()}`);
+    console.log(`Total History Items: ${history.length}`);
+    console.log(`Filtered Items: ${filtered.length}`);
+    if (history.length > 0) {
+      console.log(`Oldest Item: ${history[0]?.timestamp}`);
+      console.log(`Newest Item: ${history[history.length - 1]?.timestamp}`);
+    }
+    
+    return filtered;
   };
 
   const filteredHistory = filterHistoryByTimeRange();
@@ -207,6 +220,9 @@ function Dashboard({ currentSpeed, history, isMonitoring, liveMonitoring, toggle
     downloadLatency: item.downloadLatency || item.ping,
     uploadLatency: item.uploadLatency || item.ping
   }));
+
+  console.log(`📊 Chart Data Length: ${chartData.length}`);
+  console.log(`📊 Sample Chart Data:`, chartData.slice(0, 2));
 
   // Generate ticks to display on X-axis
   const generateXAxisTicks = () => {
@@ -380,7 +396,7 @@ function Dashboard({ currentSpeed, history, isMonitoring, liveMonitoring, toggle
           onClick={clearHistory}
         >
           <Trash2 size={20} />
-          Clear History
+          Clear All Data
         </button>
       </div>
 
@@ -786,8 +802,12 @@ function Dashboard({ currentSpeed, history, isMonitoring, liveMonitoring, toggle
         ) : (
           <div className="no-data">
             <Activity size={48} />
-            <p>No data available yet</p>
-            <p className="subtitle">Run a speed test or start monitoring to see results</p>
+            <p>No data available for {timeRange === '1h' ? 'the last hour' : timeRange === '6h' ? 'the last 6 hours' : timeRange === '24h' ? 'the last 24 hours' : timeRange === '7d' ? 'the last 7 days' : 'this time range'}</p>
+            <p className="subtitle">
+              {history.length === 0 
+                ? 'Run a speed test or start monitoring to see results' 
+                : `Try selecting a longer time range (${history.length} total results available)`}
+            </p>
           </div>
         )}
       </div>
