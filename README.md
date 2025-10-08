@@ -110,9 +110,9 @@ docker-compose up -d
 
 ## 🚀 Running the Application
 
-### Development Mode
+### Development Mode (Separate Servers)
 
-**Option 1: Run backend and frontend separately (recommended)**
+**Run backend and frontend separately (recommended for development)**
 
 Terminal 1 - Backend:
 ```bash
@@ -127,11 +127,13 @@ npm start
 ```
 
 The application will be available at:
-- **Frontend**: http://localhost:4280
+- **Frontend**: http://localhost:4280 (with hot reload)
 - **Backend API**: http://localhost:8745
 - **WebSocket**: ws://localhost:8745
 
-### Production Mode
+### Production Mode (Single Server)
+
+**Option 1: npm start with built frontend**
 
 1. **Build frontend:**
 ```bash
@@ -139,24 +141,25 @@ cd frontend
 npm run build
 ```
 
-2. **Serve via backend:**
+2. **Start backend (serves everything):**
 ```bash
 cd backend
-NODE_ENV=production node server.js
+npm start
 ```
 
-### Docker Mode
+Access at: http://localhost:8745
+
+**Option 2: Docker (recommended)**
 
 ```bash
-# Start containers
+docker-compose build
 docker-compose up -d
-
-# View logs
 docker-compose logs -f
-
-# Stop containers
-docker-compose down
 ```
+
+Access at: http://localhost:8745
+
+> **📘 For detailed production deployment options**, see [PRODUCTION_DEPLOYMENT.md](PRODUCTION_DEPLOYMENT.md)
 
 ## ⚙️ Configuration
 
@@ -358,7 +361,9 @@ The backend includes a comprehensive logging system with:
 ### Setup & Configuration
 - [QUICKSTART.md](QUICKSTART.md) - Quick setup guide
 - [QUICKSTART_NEW_PORTS.md](QUICKSTART_NEW_PORTS.md) - Quick start with new ports
+- [PRODUCTION_DEPLOYMENT.md](PRODUCTION_DEPLOYMENT.md) - **Production deployment options** (Docker, npm, PM2, systemd)
 - [DOCKER_SETUP.md](DOCKER_SETUP.md) - Docker deployment instructions
+- [DOCKER_FIXES.md](DOCKER_FIXES.md) - Docker production fixes (WebSocket, ping, static serving)
 - [OOKLA_CLI_SETUP.md](OOKLA_CLI_SETUP.md) - Speedtest CLI installation
 - [PORT_CONFIGURATION.md](PORT_CONFIGURATION.md) - Port configuration guide
 - [NETWORK_CONFIGURATION.md](NETWORK_CONFIGURATION.md) - Network setup

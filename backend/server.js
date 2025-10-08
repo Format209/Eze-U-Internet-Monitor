@@ -1199,24 +1199,25 @@ app.post('/api/test-notification', (req, res) => {
   });
 });
 
-// Serve static frontend files in production (Docker)
-if (process.env.NODE_ENV === 'production') {
-  const frontendBuildPath = path.join(__dirname, '../frontend/build');
+// Serve static frontend files if build exists
+// This works in production (Docker) or when user runs "npm start" after building frontend
+const frontendBuildPath = path.join(__dirname, '../frontend/build');
+
+if (fs.existsSync(frontendBuildPath)) {
+  // Serve static files from the React build folder
+  app.use(express.static(frontendBuildPath));
   
-  if (fs.existsSync(frontendBuildPath)) {
-    // Serve static files from the React build folder
-    app.use(express.static(frontendBuildPath));
-    
-    // Handle React routing - return index.html for all non-API routes
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(frontendBuildPath, 'index.html'));
-    });
-    
-    logger.info('Serving static frontend from:', frontendBuildPath);
-  } else {
-    logger.warn('Frontend build folder not found at:', frontendBuildPath);
-    logger.warn('Frontend will not be served. Build the frontend first with: cd frontend && npm run build');
-  }
+  // Handle React routing - return index.html for all non-API routes
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(frontendBuildPath, 'index.html'));
+  });
+  
+  logger.info('✓ Serving static frontend from:', frontendBuildPath);
+  logger.info('✓ Access application at: http://localhost:' + (process.env.PORT || 8745));
+} else {
+  logger.info('ℹ Frontend build folder not found at:', frontendBuildPath);
+  logger.info('ℹ Running in API-only mode (frontend should run separately on port 4280)');
+  logger.info('ℹ To serve frontend statically: cd frontend && npm run build');
 }
 
 const PORT = process.env.PORT || 8745;

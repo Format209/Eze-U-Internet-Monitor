@@ -11,19 +11,41 @@ const getBackendUrl = () => {
   const hostname = window.location.hostname;
   const port = window.location.port;
   
-  // In production (Docker/static serving), frontend and backend are on the same port
-  // In development, backend is on 8745, frontend proxies requests
-  if (port && port !== '80' && port !== '443') {
-    // Using explicit port (either 4280 in dev or 8745 in production)
-    return `${protocol}//${hostname}:${port}`;
+  // Detect if we're in development mode (frontend on port 4280)
+  // or production mode (static serving on port 8745)
+  if (port === '4280') {
+    // Development mode: frontend on 4280, backend on 8745
+    return `${protocol}//${hostname}:8745`;
+  } else if (port === '8745' || !port || port === '80' || port === '443') {
+    // Production mode: both on same port (8745 or default HTTP/HTTPS ports)
+    return `${protocol}//${hostname}${port && port !== '80' && port !== '443' ? ':' + port : ''}`;
   }
   
-  // Default to port 8745 if no port specified
+  // Fallback: assume backend is on port 8745
   return `${protocol}//${hostname}:8745`;
 };
 
+const getWebSocketUrl = () => {
+  const hostname = window.location.hostname;
+  const port = window.location.port;
+  
+  // Detect if we're in development mode (frontend on port 4280)
+  // or production mode (static serving on port 8745)
+  if (port === '4280') {
+    // Development mode: WebSocket connects to backend on 8745
+    return `ws://${hostname}:8745`;
+  } else if (port === '8745' || !port) {
+    // Production mode: WebSocket on same port as frontend
+    const wsPort = port || '8745';
+    return `ws://${hostname}:${wsPort}`;
+  }
+  
+  // Fallback: assume WebSocket is on port 8745
+  return `ws://${hostname}:8745`;
+};
+
 const BACKEND_URL = getBackendUrl();
-const WS_URL = BACKEND_URL.replace(/^http/, 'ws');
+const WS_URL = getWebSocketUrl();
 
 function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
