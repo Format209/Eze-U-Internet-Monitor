@@ -34,8 +34,7 @@ coverage/
 /build
 
 # Documentation
-*.md
-!README.md
+# All .md files are now included for project documentation
 
 # Database (SQLite)
 *.db

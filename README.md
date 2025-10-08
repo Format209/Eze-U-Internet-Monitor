@@ -402,10 +402,62 @@ The backend includes a comprehensive logging system with:
 
 ## 🤝 Contributing
 
-Contributions are welcome! Feel free to:
-- Report bugs
-- Suggest new features
-- Submit pull requests
+Contributions are welcome! We appreciate your help in making this project better.
+
+### How to Contribute
+
+1. **Fork the Repository**
+   ```bash
+   git clone https://github.com/Format209/Ez--U-Internet-Monitor.git
+   cd Ez--U-Internet-Monitor
+   ```
+
+2. **Create a Feature Branch**
+   ```bash
+   git checkout -b feature/your-feature-name
+   ```
+
+3. **Make Your Changes**
+   - Write clean, documented code
+   - Follow existing code style
+   - Test your changes thoroughly
+
+4. **Commit Your Changes**
+   ```bash
+   git add .
+   git commit -m "Add: your feature description"
+   ```
+
+5. **Push to Your Fork**
+   ```bash
+   git push origin feature/your-feature-name
+   ```
+
+6. **Create a Pull Request**
+   - Go to the original repository
+   - Click "New Pull Request"
+   - Describe your changes clearly
+
+### Ways to Contribute
+- 🐛 **Report Bugs**: Open an issue with details and steps to reproduce
+- 💡 **Suggest Features**: Share your ideas for new features
+- 📝 **Improve Documentation**: Fix typos, add examples, clarify instructions
+- 🔧 **Fix Issues**: Browse open issues and submit fixes
+- 🎨 **Enhance UI/UX**: Improve design and user experience
+- ✅ **Write Tests**: Add unit or integration tests
+- 🌍 **Translations**: Add support for more languages
+
+### Code of Conduct
+- Be respectful and inclusive
+- Provide constructive feedback
+- Focus on the issue, not the person
+- Help create a welcoming environment for everyone
+
+### Development Setup
+See [QUICKSTART.md](QUICKSTART.md) for detailed setup instructions.
+
+### Questions?
+Feel free to open an issue for any questions or discussions!
 
 ## ❤️ Support
 
@@ -415,7 +467,17 @@ If you find this project helpful, consider supporting development:
 
 ## 📄 License
 
-ISC
+Copyright (c) 2025 Format209
+
+This project is licensed under the **ISC License** - see the [LICENSE](LICENSE) file for details.
+
+### What This Means
+- ✅ **Free to use** for personal and commercial projects
+- ✅ **Modify and distribute** as you wish
+- ✅ **No warranty** - use at your own risk
+- ✅ **Attribution** - keep the copyright notice
+
+The ISC License is a permissive open-source license similar to MIT and BSD, allowing maximum freedom for users while protecting the author from liability.
 
 ## 👨‍💻 Author
 
