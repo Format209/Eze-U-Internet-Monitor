@@ -1194,6 +1194,26 @@ app.post('/api/test-notification', (req, res) => {
   });
 });
 
+// Serve static frontend files in production (Docker)
+if (process.env.NODE_ENV === 'production') {
+  const frontendBuildPath = path.join(__dirname, '../frontend/build');
+  
+  if (fs.existsSync(frontendBuildPath)) {
+    // Serve static files from the React build folder
+    app.use(express.static(frontendBuildPath));
+    
+    // Handle React routing - return index.html for all non-API routes
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(frontendBuildPath, 'index.html'));
+    });
+    
+    logger.info('Serving static frontend from:', frontendBuildPath);
+  } else {
+    logger.warn('Frontend build folder not found at:', frontendBuildPath);
+    logger.warn('Frontend will not be served. Build the frontend first with: cd frontend && npm run build');
+  }
+}
+
 const PORT = process.env.PORT || 8745;
 
 server.listen(PORT, async () => {
