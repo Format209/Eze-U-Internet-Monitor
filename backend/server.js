@@ -240,6 +240,15 @@ function invalidateMonitoringCache() {
     }
   }
 
+  // Add logLevel column if it doesn't exist (migration)
+  try {
+    db.exec(`ALTER TABLE settings ADD COLUMN logLevel TEXT DEFAULT 'INFO'`);
+  } catch (err) {
+    if (!err.message.includes('duplicate column')) {
+      logger.error('Error adding logLevel column:', err.message);
+    }
+  }
+
   // Create live_monitoring table
   db.exec(`
     CREATE TABLE IF NOT EXISTS live_monitoring (
@@ -378,7 +387,8 @@ async function loadSettings(forceRefresh = false) {
         minDownload: 50,
         minUpload: 10,
         maxPing: 100
-      }
+      },
+      logLevel: 'INFO'  // Default log level
     };
   }
   
@@ -403,7 +413,8 @@ async function loadSettings(forceRefresh = false) {
       minDownload: row.minDownload,
       minUpload: row.minUpload,
       maxPing: row.maxPing
-    }
+    },
+    logLevel: row.logLevel || 'INFO'
   };
   
   // Update cache
@@ -429,7 +440,8 @@ async function saveSettings(settings) {
         notificationSettings = ?,
         minDownload = ?,
         minUpload = ?,
-        maxPing = ?
+        maxPing = ?,
+        logLevel = ?
     WHERE id = 1
   `, [
     settings.testInterval,
@@ -441,7 +453,8 @@ async function saveSettings(settings) {
     JSON.stringify(settings.notificationSettings || {}),
     settings.thresholds.minDownload,
     settings.thresholds.minUpload,
-    settings.thresholds.maxPing
+    settings.thresholds.maxPing,
+    settings.logLevel || 'INFO'
   ]);
 }
 
@@ -546,6 +559,12 @@ let monitoringData = {
 // Initialize data from database
 async function initializeData() {
   monitoringData.settings = await loadSettings();
+  
+  // Apply log level from settings
+  if (monitoringData.settings.logLevel) {
+    logger.setLevel(monitoringData.settings.logLevel);
+  }
+  
   monitoringData.history = await loadHistory(100);
   monitoringData.liveMonitoring = await loadLiveMonitoring();
   logger.success('Database loaded successfully');
@@ -1476,6 +1495,11 @@ app.post('/api/settings', async (req, res) => {
   
   // Reload settings to update cache and get fresh data
   monitoringData.settings = await loadSettings(true); // Force refresh
+  
+  // Apply log level if changed
+  if (monitoringData.settings.logLevel) {
+    logger.setLevel(monitoringData.settings.logLevel);
+  }
   
   // Restart monitoring with new settings
   await restartMonitoring();

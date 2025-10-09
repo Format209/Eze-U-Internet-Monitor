@@ -17,6 +17,7 @@ function Settings({ settings, updateSettings }) {
   const [localSettings, setLocalSettings] = useState({
     ...settings,
     monitorInterval: settings.monitorInterval || 5,
+    logLevel: settings.logLevel || 'INFO',
     monitoringHosts: settings.monitoringHosts || [
       { address: '8.8.8.8', name: 'Google DNS', enabled: true },
       { address: '1.1.1.1', name: 'Cloudflare DNS', enabled: true },
@@ -456,6 +457,24 @@ function Settings({ settings, updateSettings }) {
               min="1"
               max="60"
             />
+          </div>
+
+          <div className="setting-item">
+            <label htmlFor="logLevel">
+              Server Log Level
+              <span className="help-text">Controls how much detail is logged by the backend server (DEBUG shows everything, ERROR shows only errors)</span>
+            </label>
+            <select
+              id="logLevel"
+              name="logLevel"
+              value={localSettings.logLevel || 'INFO'}
+              onChange={handleChange}
+            >
+              <option value="DEBUG">DEBUG - Show all logs (most verbose)</option>
+              <option value="INFO">INFO - Show info, warnings, and errors</option>
+              <option value="WARN">WARN - Show only warnings and errors</option>
+              <option value="ERROR">ERROR - Show only errors (least verbose)</option>
+            </select>
           </div>
         </div>
       )}

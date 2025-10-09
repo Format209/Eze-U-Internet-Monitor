@@ -1,5 +1,13 @@
 // Logger utility with timestamps and log levels
 const logLevels = {
+  DEBUG: 0,
+  INFO: 1,
+  WARN: 2,
+  ERROR: 3,
+  SUCCESS: 1  // Same priority as INFO
+};
+
+const logLevelNames = {
   DEBUG: 'DEBUG',
   INFO: 'INFO',
   WARN: 'WARN',
@@ -18,6 +26,9 @@ const colors = {
   DIM: '\x1b[2m'        // Dim
 };
 
+// Current log level (default: DEBUG = show everything)
+let currentLogLevel = logLevels.DEBUG;
+
 function formatTimestamp() {
   const now = new Date();
   const year = now.getFullYear();
@@ -32,6 +43,11 @@ function formatTimestamp() {
 }
 
 function log(level, message, ...args) {
+  // Skip if log level is below current threshold
+  if (logLevels[level] < currentLogLevel) {
+    return;
+  }
+  
   const timestamp = formatTimestamp();
   const color = colors[level] || colors.INFO;
   const levelStr = level.padEnd(7);
@@ -43,11 +59,28 @@ function log(level, message, ...args) {
 }
 
 const logger = {
-  debug: (message, ...args) => log(logLevels.DEBUG, message, ...args),
-  info: (message, ...args) => log(logLevels.INFO, message, ...args),
-  warn: (message, ...args) => log(logLevels.WARN, message, ...args),
-  error: (message, ...args) => log(logLevels.ERROR, message, ...args),
-  success: (message, ...args) => log(logLevels.SUCCESS, message, ...args)
+  debug: (message, ...args) => log(logLevelNames.DEBUG, message, ...args),
+  info: (message, ...args) => log(logLevelNames.INFO, message, ...args),
+  warn: (message, ...args) => log(logLevelNames.WARN, message, ...args),
+  error: (message, ...args) => log(logLevelNames.ERROR, message, ...args),
+  success: (message, ...args) => log(logLevelNames.SUCCESS, message, ...args),
+  
+  // Set log level
+  setLevel: (level) => {
+    const levelUpper = level.toUpperCase();
+    if (logLevels[levelUpper] !== undefined) {
+      currentLogLevel = logLevels[levelUpper];
+      console.log(`${colors.INFO}[INFO   ]${colors.RESET} - Log level set to: ${levelUpper}`);
+    } else {
+      console.log(`${colors.WARN}[WARN   ]${colors.RESET} - Invalid log level: ${level}. Using DEBUG.`);
+      currentLogLevel = logLevels.DEBUG;
+    }
+  },
+  
+  // Get current log level
+  getLevel: () => {
+    return Object.keys(logLevels).find(key => logLevels[key] === currentLogLevel) || 'DEBUG';
+  }
 };
 
 module.exports = logger;
