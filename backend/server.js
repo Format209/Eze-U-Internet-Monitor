@@ -11,16 +11,62 @@ const Database = require('better-sqlite3'); // Phase 2: Using better-sqlite3 for
 const path = require('path');
 const axios = require('axios');
 const logger = require('./logger');
+const compression = require('compression'); // Phase 3: HTTP response compression
+const NodeCache = require('node-cache'); // Phase 3: Query result caching
 require('dotenv').config();
 
 const execPromise = util.promisify(exec);
 
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+
+// Phase 3: WebSocket with compression enabled
+const wss = new WebSocket.Server({ 
+  server,
+  perMessageDeflate: {
+    zlibDeflateOptions: {
+      chunkSize: 1024,
+      memLevel: 7,
+      level: 3  // Balance between speed and compression ratio
+    },
+    zlibInflateOptions: {
+      chunkSize: 10 * 1024
+    },
+    clientNoContextTakeover: true,
+    serverNoContextTakeover: true,
+    serverMaxWindowBits: 10,
+    concurrencyLimit: 10,
+    threshold: 1024  // Only compress messages larger than 1KB
+  }
+});
+
+// Phase 3: Query result cache
+const queryCache = new NodeCache({
+  stdTTL: 60,  // 60 second default TTL
+  checkperiod: 120,  // Check for expired keys every 2 minutes
+  useClones: false  // Don't clone objects for better performance
+});
+
+logger.info('✓ Query cache initialized (60s TTL)');
 
 app.use(cors());
 app.use(express.json());
+
+// Phase 3: HTTP response compression
+app.use(compression({
+  level: 6,  // zlib compression level (0-9)
+  threshold: 1024,  // Only compress responses larger than 1KB
+  filter: (req, res) => {
+    // Don't compress if client explicitly disables it
+    if (req.headers['x-no-compression']) {
+      return false;
+    }
+    // Use compression middleware's default filter
+    return compression.filter(req, res);
+  }
+}));
+
+logger.info('✓ HTTP compression enabled (gzip/deflate)');
 
 // Initialize SQLite database
 // Check if running in Docker (data directory exists) or local development
@@ -74,6 +120,46 @@ const dbAll = async (sql, params = []) => {
     throw err;
   }
 };
+
+// Phase 3: Cached query wrapper for performance
+async function cachedQuery(cacheKey, ttl, queryFn) {
+  // Check cache first
+  const cached = queryCache.get(cacheKey);
+  if (cached !== undefined) {
+    logger.debug(`[CACHE HIT] ${cacheKey}`);
+    return cached;
+  }
+  
+  // Cache miss - execute query
+  logger.debug(`[CACHE MISS] ${cacheKey}`);
+  const result = await queryFn();
+  
+  // Store in cache with TTL
+  queryCache.set(cacheKey, result, ttl);
+  return result;
+}
+
+// Phase 3: Cache invalidation helpers
+function invalidateHistoryCache() {
+  const keys = queryCache.keys().filter(k => k.startsWith('history:'));
+  keys.forEach(key => queryCache.del(key));
+  if (keys.length > 0) {
+    logger.debug(`[CACHE] Invalidated ${keys.length} history cache entries`);
+  }
+}
+
+function invalidateSettingsCache() {
+  queryCache.del('settings');
+  logger.debug('[CACHE] Invalidated settings cache');
+}
+
+function invalidateMonitoringCache() {
+  const keys = queryCache.keys().filter(k => k.startsWith('monitoring:'));
+  keys.forEach(key => queryCache.del(key));
+  if (keys.length > 0) {
+    logger.debug(`[CACHE] Invalidated ${keys.length} monitoring cache entries`);
+  }
+}
 
 // Create tables (better-sqlite3 uses synchronous exec())
 (() => {
@@ -387,6 +473,9 @@ async function saveSpeedTest(result) {
     result.isp || null,
     result.resultUrl || null
   ]);
+  
+  // Phase 3: Invalidate history cache when new test added
+  invalidateHistoryCache();
 }
 
 // Save live monitoring to database
@@ -1216,10 +1305,48 @@ app.get('/api/status', (req, res) => {
 });
 
 // Get history
+// Phase 3: History endpoint with caching and pagination
 app.get('/api/history', async (req, res) => {
-  const limit = parseInt(req.query.limit) || 100;
-  const history = await loadHistory(limit);
-  res.json(history);
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 50, 1000);
+    const offset = parseInt(req.query.offset) || 0;
+    
+    // Create cache key based on parameters
+    const cacheKey = `history:${limit}:${offset}`;
+    
+    // Use cached query (30 second TTL for history)
+    const results = await cachedQuery(cacheKey, 30, async () => {
+      return await dbAll(
+        'SELECT * FROM speed_tests ORDER BY timestamp DESC LIMIT ? OFFSET ?',
+        [limit, offset]
+      );
+    });
+    
+    // If pagination requested, include metadata
+    if (req.query.offset !== undefined || req.query.paginated === 'true') {
+      const totalCountKey = 'history:total';
+      const total = await cachedQuery(totalCountKey, 60, async () => {
+        const result = await dbGet('SELECT COUNT(*) as count FROM speed_tests');
+        return result.count;
+      });
+      
+      res.json({
+        results,
+        pagination: {
+          offset,
+          limit,
+          total,
+          hasMore: offset + limit < total
+        }
+      });
+    } else {
+      // Legacy response format (for backward compatibility)
+      res.json(results);
+    }
+  } catch (error) {
+    logger.error('History endpoint error:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Run immediate speed test
@@ -1243,9 +1370,17 @@ app.post('/api/ping', async (req, res) => {
   }
 });
 
-// Get settings
-app.get('/api/settings', (req, res) => {
-  res.json(monitoringData.settings);
+// Phase 3: Get settings with caching
+app.get('/api/settings', async (req, res) => {
+  try {
+    const settings = await cachedQuery('settings', 60, async () => {
+      return monitoringData.settings;
+    });
+    res.json(settings);
+  } catch (error) {
+    logger.error('Settings endpoint error:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Get next scheduled test time
@@ -1312,6 +1447,9 @@ app.post('/api/settings', async (req, res) => {
   monitoringData.settings = { ...monitoringData.settings, ...req.body };
   await saveSettings(monitoringData.settings);
   
+  // Phase 3: Invalidate settings cache
+  invalidateSettingsCache();
+  
   // Reload settings to update cache and get fresh data
   monitoringData.settings = await loadSettings(true); // Force refresh
   
@@ -1335,6 +1473,10 @@ app.delete('/api/history', async (req, res) => {
   
   // Clear notification state
   notificationState.hostStatus = {};
+  
+  // Phase 3: Invalidate all caches
+  invalidateHistoryCache();
+  invalidateMonitoringCache();
   
   broadcast({ type: 'historyCleared' });
   res.json({ message: 'All history and monitoring data cleared' });
