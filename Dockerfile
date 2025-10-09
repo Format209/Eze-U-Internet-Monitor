@@ -21,13 +21,17 @@ FROM node:18-alpine AS backend
 
 WORKDIR /app
 
-# Install dependencies needed for Ookla Speedtest CLI and ping
+# Install dependencies needed for Ookla Speedtest CLI, ping, and better-sqlite3 compilation
 RUN apk add --no-cache \
     wget \
     ca-certificates \
     curl \
     iputils \
-    bash
+    bash \
+    build-base \
+    python3 \
+    make \
+    g++
 
 # Install Ookla Speedtest CLI
 RUN wget -qO- https://install.speedtest.net/app/cli/ookla-speedtest-1.2.0-linux-x86_64.tgz | tar xvz -C /usr/local/bin/ \
@@ -59,10 +63,11 @@ EXPOSE 8745
 # Set environment variables
 ENV NODE_ENV=production
 ENV PORT=8745
+ENV NODE_OPTIONS="--max-old-space-size=768"
 
-# Health check
+# Health check (use /api/settings instead of /api/status)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD curl -f http://localhost:8745/api/status || exit 1
+  CMD curl -f http://localhost:8745/api/settings || exit 1
 
-# Start the application
-CMD ["node", "server.js"]
+# Start the application with optimized Node.js flags
+CMD ["node", "--max-old-space-size=768", "server.js"]
