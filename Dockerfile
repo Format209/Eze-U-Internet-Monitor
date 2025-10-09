@@ -33,11 +33,14 @@ RUN apk add --no-cache \
     python3-dev \
     py3-setuptools \
     make \
-    g++
+    g++ \
+    ca-certificates
 
-# Install Ookla Speedtest CLI
-RUN wget -qO- https://install.speedtest.net/app/cli/ookla-speedtest-1.2.0-linux-x86_64.tgz | tar xvz -C /usr/local/bin/ \
-    && chmod +x /usr/local/bin/speedtest \
+# Install Ookla Speedtest CLI using official Alpine package repository
+RUN wget -q -O /etc/apk/keys/speedtest.rsa.pub https://install.speedtest.net/app/cli/ookla-speedtest.rsa.pub \
+    && echo "https://install.speedtest.net/app/cli/apk/" >> /etc/apk/repositories \
+    && apk update \
+    && apk add speedtest \
     && speedtest --version
 
 # Copy backend package files
