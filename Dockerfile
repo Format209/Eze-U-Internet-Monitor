@@ -42,11 +42,11 @@ RUN apk add --no-cache \
     g++ \
     ca-certificates
 
-# Install Ookla Speedtest CLI using official Alpine package repository
-RUN wget -q -O /etc/apk/keys/speedtest.rsa.pub https://install.speedtest.net/app/cli/ookla-speedtest.rsa.pub \
-    && echo "https://install.speedtest.net/app/cli/apk/" >> /etc/apk/repositories \
-    && apk update \
-    && apk add speedtest \
+# Install Ookla Speedtest CLI - Download binary directly (more reliable than repository)
+RUN wget -qO speedtest.tgz https://install.speedtest.net/app/cli/ookla-speedtest-1.2.0-linux-x86_64.tgz \
+    && tar xzf speedtest.tgz -C /usr/local/bin/ speedtest \
+    && rm speedtest.tgz \
+    && chmod +x /usr/local/bin/speedtest \
     && speedtest --version
 
 # Configure npm for better reliability
