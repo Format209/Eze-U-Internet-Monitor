@@ -378,6 +378,12 @@ async function loadSettings(forceRefresh = false) {
         minDownload: 50,
         minUpload: 10,
         maxPing: 100
+      },
+      monitoringThresholds: {
+        maxPing: 100,
+        consecutiveFailures: 3,
+        consecutiveSuccesses: 2,
+        packetLoss: 10
       }
     };
   }
@@ -886,6 +892,7 @@ async function sendEmailNotification(emailConfig, message, eventType) {
 }
 
 // Perform ping test
+// Fast ping for high-frequency monitoring (1-5 second intervals)
 async function performPing(host = '8.8.8.8') {
   try {
     // Detect OS for proper ping flags
@@ -893,8 +900,9 @@ async function performPing(host = '8.8.8.8') {
     const isWindows = process.platform === 'win32';
     const pingArgs = isWindows ? ['-n', '1'] : ['-c', '1'];
     
+    // For high-frequency monitoring, use a single fast ping with reasonable timeout
     const res = await ping.promise.probe(host, {
-      timeout: 10,
+      timeout: 2,  // 2 second timeout (fast enough for 1-sec intervals)
       min_reply: 1,
       extra: pingArgs
     });
@@ -1142,54 +1150,71 @@ async function performQuickMonitor() {
     // Initialize state if first time seeing this host
     if (!prevState) {
       notificationState.hostStatus[result.address] = {
-        isDown: isDown,
-        lastNotificationTime: null
+        isDown: false,  // Start optimistic (assume host is up)
+        lastNotificationTime: null,
+        failureCount: 0,  // Track consecutive failures
+        successCount: 0   // Track consecutive successes
       };
+    }
+    
+    const state = notificationState.hostStatus[result.address];
+    const wasDown = state.isDown;
+    
+    // Update failure/success counters
+    if (isDown) {
+      state.failureCount++;
+      state.successCount = 0;
     } else {
-      // Check for status change
-      const wasDown = prevState.isDown;
-      
-      // Host went DOWN
-      if (!wasDown && isDown) {
-        if (checkNotificationCooldown(prevState.lastNotificationTime)) {
-          triggerNotification('onHostDown', {
-            host: result.name,
-            address: result.address,
-            timestamp: result.timestamp
-          });
-          notificationState.hostStatus[result.address].lastNotificationTime = Date.now();
-        }
-        notificationState.hostStatus[result.address].isDown = true;
-        logger.error(`🔴 HOST DOWN: ${result.name} (${result.address})`);
+      state.successCount++;
+      state.failureCount = 0;
+    }
+    
+    // Get thresholds from settings (configurable in UI)
+    const FAILURE_THRESHOLD = monitoringData.settings.monitoringThresholds?.consecutiveFailures || 3;
+    const SUCCESS_THRESHOLD = monitoringData.settings.monitoringThresholds?.consecutiveSuccesses || 2;
+    
+    // Host went DOWN (after 3 consecutive failures)
+    if (!wasDown && state.failureCount >= FAILURE_THRESHOLD) {
+      if (checkNotificationCooldown(state.lastNotificationTime)) {
+        triggerNotification('onHostDown', {
+          host: result.name,
+          address: result.address,
+          timestamp: result.timestamp
+        });
+        state.lastNotificationTime = Date.now();
       }
-      
-      // Host came BACK UP
-      if (wasDown && !isDown) {
-        if (checkNotificationCooldown(prevState.lastNotificationTime)) {
-          triggerNotification('onHostUp', {
-            host: result.name,
-            address: result.address,
-            ping: result.ping,
-            timestamp: result.timestamp
-          });
-          notificationState.hostStatus[result.address].lastNotificationTime = Date.now();
-        }
-        notificationState.hostStatus[result.address].isDown = false;
-        logger.success(`HOST RECOVERED: ${result.name} (${result.address}) - ${result.ping}ms`);
+      state.isDown = true;
+      logger.error(`🔴 HOST DOWN: ${result.name} (${result.address}) - ${FAILURE_THRESHOLD} consecutive failures`);
+    }
+    
+    // Host came BACK UP (after 2 consecutive successes)
+    if (wasDown && state.successCount >= SUCCESS_THRESHOLD) {
+      if (checkNotificationCooldown(state.lastNotificationTime)) {
+        triggerNotification('onHostUp', {
+          host: result.name,
+          address: result.address,
+          ping: result.ping,
+          timestamp: result.timestamp
+        });
+        state.lastNotificationTime = Date.now();
       }
-      
-      // Check for high latency (only for hosts that are UP)
-      if (!isDown && result.ping > (monitoringData.settings.thresholds?.maxPing || 100)) {
-        if (checkNotificationCooldown(notificationState.lastHighLatency)) {
-          triggerNotification('onHighLatency', {
-            host: result.name,
-            address: result.address,
-            ping: result.ping,
-            threshold: monitoringData.settings.thresholds?.maxPing || 100,
-            timestamp: result.timestamp
-          });
-          notificationState.lastHighLatency = Date.now();
-        }
+      state.isDown = false;
+      logger.success(`🟢 HOST RECOVERED: ${result.name} (${result.address}) - ${result.ping}ms`);
+    }
+    
+    // Check for high latency (only for hosts that are UP)
+    const maxPingThreshold = monitoringData.settings.monitoringThresholds?.maxPing || 
+                             monitoringData.settings.thresholds?.maxPing || 100;
+    if (!isDown && result.ping > maxPingThreshold) {
+      if (checkNotificationCooldown(notificationState.lastHighLatency)) {
+        triggerNotification('onHighLatency', {
+          host: result.name,
+          address: result.address,
+          ping: result.ping,
+          threshold: maxPingThreshold,
+          timestamp: result.timestamp
+        });
+        notificationState.lastHighLatency = Date.now();
       }
     }
     
