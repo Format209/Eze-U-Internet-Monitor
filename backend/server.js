@@ -151,11 +151,34 @@ db.serialize(() => {
     )
   `);
 
-  // Create index for faster queries
+  // Create indexes for faster queries (Phase 1 Optimization)
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_speed_tests_timestamp 
+    ON speed_tests(timestamp DESC)
+  `, (err) => {
+    if (!err) logger.debug('✓ Index created: idx_speed_tests_timestamp');
+  });
+
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_live_monitoring_address 
+    ON live_monitoring(address)
+  `, (err) => {
+    if (!err) logger.debug('✓ Index created: idx_live_monitoring_address');
+  });
+
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_monitoring_history_address_timestamp 
-    ON live_monitoring_history(address, timestamp)
-  `);
+    ON live_monitoring_history(address, timestamp DESC)
+  `, (err) => {
+    if (!err) logger.debug('✓ Index created: idx_monitoring_history_address_timestamp');
+  });
+
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_monitoring_history_timestamp
+    ON live_monitoring_history(timestamp)
+  `, (err) => {
+    if (!err) logger.debug('✓ Index created: idx_monitoring_history_timestamp');
+  });
 
   // Initialize settings if not exists
   const defaultHosts = JSON.stringify([
@@ -170,8 +193,30 @@ db.serialize(() => {
   `, [defaultHosts]);
 });
 
-// Load settings from database
-async function loadSettings() {
+// Settings cache (Phase 1 Optimization)
+const settingsCache = {
+  data: null,
+  timestamp: 0,
+  TTL: 60000 // Cache for 60 seconds
+};
+
+// Invalidate settings cache
+function invalidateSettingsCache() {
+  settingsCache.data = null;
+  settingsCache.timestamp = 0;
+  logger.debug('✓ Settings cache invalidated');
+}
+
+// Load settings from database with caching
+async function loadSettings(forceRefresh = false) {
+  const now = Date.now();
+  
+  // Return cached settings if fresh and not forcing refresh
+  if (!forceRefresh && settingsCache.data && (now - settingsCache.timestamp) < settingsCache.TTL) {
+    logger.debug('✓ Using cached settings');
+    return settingsCache.data;
+  }
+  
   const row = await dbGet('SELECT * FROM settings WHERE id = 1');
   
   const defaultNotificationSettings = {
@@ -231,7 +276,7 @@ async function loadSettings() {
     }
   }
   
-  return {
+  const loadedSettings = {
     testInterval: row.testInterval,
     monitorInterval: row.monitorInterval || 5,
     pingHost: row.pingHost,
@@ -245,10 +290,19 @@ async function loadSettings() {
       maxPing: row.maxPing
     }
   };
+  
+  // Update cache
+  settingsCache.data = loadedSettings;
+  settingsCache.timestamp = now;
+  logger.debug('✓ Settings loaded and cached');
+  
+  return loadedSettings;
 }
 
 // Save settings to database
 async function saveSettings(settings) {
+  // Invalidate cache when settings are saved
+  invalidateSettingsCache();
   await dbRun(`
     UPDATE settings 
     SET testInterval = ?, 
@@ -521,33 +575,57 @@ function formatNotificationMessage(eventType, data) {
   return messages[eventType] || `Notification: ${eventType}`;
 }
 
-// Send notifications to enabled channels
+// Send notifications to enabled channels (Phase 1 Optimization: Parallel sending)
 async function sendToNotificationChannels(notificationSettings, message, eventType, data) {
   const types = notificationSettings?.types || {};
+  const promises = [];
   
   // Discord
   if (types.discord?.enabled && types.discord?.webhookUrl) {
-    sendDiscordNotification(types.discord.webhookUrl, message, eventType, data);
+    promises.push(
+      sendDiscordNotification(types.discord.webhookUrl, message, eventType, data)
+        .catch(err => logger.error('Discord notification failed:', err.message))
+    );
   }
   
   // Telegram
   if (types.telegram?.enabled && types.telegram?.botToken && types.telegram?.chatId) {
-    sendTelegramNotification(types.telegram, message);
+    promises.push(
+      sendTelegramNotification(types.telegram, message)
+        .catch(err => logger.error('Telegram notification failed:', err.message))
+    );
   }
   
   // Slack
   if (types.slack?.enabled && types.slack?.webhookUrl) {
-    sendSlackNotification(types.slack.webhookUrl, message);
+    promises.push(
+      sendSlackNotification(types.slack.webhookUrl, message)
+        .catch(err => logger.error('Slack notification failed:', err.message))
+    );
   }
   
   // Custom Webhook
   if (types.webhook?.enabled && types.webhook?.url) {
-    sendWebhookNotification(types.webhook, message, eventType, data);
+    promises.push(
+      sendWebhookNotification(types.webhook, message, eventType, data)
+        .catch(err => logger.error('Webhook notification failed:', err.message))
+    );
   }
   
   // Email
   if (types.email?.enabled && types.email?.address && types.email?.smtp?.host) {
-    sendEmailNotification(types.email, message, eventType);
+    promises.push(
+      sendEmailNotification(types.email, message, eventType)
+        .catch(err => logger.error('Email notification failed:', err.message))
+    );
+  }
+  
+  // Send all notifications simultaneously
+  if (promises.length > 0) {
+    const startTime = Date.now();
+    await Promise.allSettled(promises);
+    const duration = Date.now() - startTime;
+    logger.debug(`✓ Sent ${promises.length} notifications in ${duration}ms (parallel)`);
   }
 }
 
@@ -1147,7 +1225,10 @@ app.get('/api/live-monitoring-history/:address', async (req, res) => {
 // Update settings
 app.post('/api/settings', async (req, res) => {
   monitoringData.settings = { ...monitoringData.settings, ...req.body };
-  saveSettings(monitoringData.settings);
+  await saveSettings(monitoringData.settings);
+  
+  // Reload settings to update cache and get fresh data
+  monitoringData.settings = await loadSettings(true); // Force refresh
   
   // Restart monitoring with new settings
   await restartMonitoring();
