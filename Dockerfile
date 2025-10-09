@@ -44,8 +44,9 @@ RUN apk add --no-cache \
 
 # Install Ookla Speedtest CLI - Download binary directly (more reliable than repository)
 RUN wget -qO speedtest.tgz https://install.speedtest.net/app/cli/ookla-speedtest-1.2.0-linux-x86_64.tgz \
-    && tar xzf speedtest.tgz -C /usr/local/bin/ speedtest \
-    && rm speedtest.tgz \
+    && tar xzf speedtest.tgz \
+    && mv speedtest /usr/local/bin/ \
+    && rm speedtest.tgz speedtest.5 speedtest.md 2>/dev/null || true \
     && chmod +x /usr/local/bin/speedtest \
     && speedtest --version
 
