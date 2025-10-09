@@ -4,11 +4,17 @@ FROM node:20-alpine AS frontend-builder
 
 WORKDIR /app/frontend
 
+# Configure npm for better reliability
+RUN npm config set fetch-retries 5 \
+    && npm config set fetch-retry-mintimeout 20000 \
+    && npm config set fetch-retry-maxtimeout 120000 \
+    && npm config set fetch-timeout 300000
+
 # Copy frontend package files
 COPY frontend/package*.json ./
 
-# Install frontend dependencies
-RUN npm install --production
+# Install frontend dependencies (omit dev dependencies)
+RUN npm ci --omit=dev || npm install --omit=dev
 
 # Copy frontend source
 COPY frontend/ ./
@@ -43,12 +49,18 @@ RUN wget -q -O /etc/apk/keys/speedtest.rsa.pub https://install.speedtest.net/app
     && apk add speedtest \
     && speedtest --version
 
+# Configure npm for better reliability
+RUN npm config set fetch-retries 5 \
+    && npm config set fetch-retry-mintimeout 20000 \
+    && npm config set fetch-retry-maxtimeout 120000 \
+    && npm config set fetch-timeout 300000
+
 # Copy backend package files
 COPY backend/package*.json ./backend/
 
 # Install backend dependencies
 WORKDIR /app/backend
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev || npm install --omit=dev
 
 # Copy backend source
 COPY backend/ ./
