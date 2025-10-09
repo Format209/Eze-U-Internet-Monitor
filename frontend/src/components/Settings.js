@@ -22,12 +22,6 @@ function Settings({ settings, updateSettings }) {
       { address: '1.1.1.1', name: 'Cloudflare DNS', enabled: true },
       { address: '208.67.222.222', name: 'OpenDNS', enabled: false }
     ],
-    monitoringThresholds: settings.monitoringThresholds || {
-      maxPing: 100,
-      consecutiveFailures: 3,
-      consecutiveSuccesses: 2,
-      packetLoss: 10
-    },
     notificationSettings: settings.notificationSettings || {
       enabled: settings.notifications || false,
       types: {
@@ -461,118 +455,6 @@ function Settings({ settings, updateSettings }) {
               onChange={handleChange}
               min="1"
               max="60"
-            />
-          </div>
-
-          <h3 style={{ marginTop: '2rem' }}>Monitoring Thresholds</h3>
-          <p className="section-description">
-            Configure when to trigger notifications for monitoring events
-          </p>
-
-          <div className="setting-item">
-            <label htmlFor="maxPingThreshold">
-              Max Latency/Ping Threshold (ms)
-              <span className="help-text">Trigger high latency notification when ping exceeds this value</span>
-            </label>
-            <input
-              type="number"
-              id="maxPingThreshold"
-              name="monitoringThresholds.maxPing"
-              value={localSettings.monitoringThresholds?.maxPing || 100}
-              onChange={(e) => {
-                const value = parseInt(e.target.value) || 100;
-                setLocalSettings(prev => ({
-                  ...prev,
-                  monitoringThresholds: {
-                    ...prev.monitoringThresholds,
-                    maxPing: value
-                  },
-                  // Also update thresholds for backward compatibility
-                  thresholds: {
-                    ...prev.thresholds,
-                    maxPing: value
-                  }
-                }));
-              }}
-              min="10"
-              max="5000"
-              step="10"
-            />
-          </div>
-
-          <div className="setting-item">
-            <label htmlFor="consecutiveFailures">
-              Consecutive Failures Before Alert
-              <span className="help-text">Number of failed pings before marking host as down (prevents false positives)</span>
-            </label>
-            <input
-              type="number"
-              id="consecutiveFailures"
-              name="monitoringThresholds.consecutiveFailures"
-              value={localSettings.monitoringThresholds?.consecutiveFailures || 3}
-              onChange={(e) => {
-                const value = parseInt(e.target.value) || 3;
-                setLocalSettings(prev => ({
-                  ...prev,
-                  monitoringThresholds: {
-                    ...prev.monitoringThresholds,
-                    consecutiveFailures: value
-                  }
-                }));
-              }}
-              min="1"
-              max="10"
-            />
-          </div>
-
-          <div className="setting-item">
-            <label htmlFor="consecutiveSuccesses">
-              Consecutive Successes Before Recovery
-              <span className="help-text">Number of successful pings before marking host as recovered</span>
-            </label>
-            <input
-              type="number"
-              id="consecutiveSuccesses"
-              name="monitoringThresholds.consecutiveSuccesses"
-              value={localSettings.monitoringThresholds?.consecutiveSuccesses || 2}
-              onChange={(e) => {
-                const value = parseInt(e.target.value) || 2;
-                setLocalSettings(prev => ({
-                  ...prev,
-                  monitoringThresholds: {
-                    ...prev.monitoringThresholds,
-                    consecutiveSuccesses: value
-                  }
-                }));
-              }}
-              min="1"
-              max="10"
-            />
-          </div>
-
-          <div className="setting-item">
-            <label htmlFor="packetLossThreshold">
-              Packet Loss Threshold (%)
-              <span className="help-text">Trigger packet loss notification when loss exceeds this percentage</span>
-            </label>
-            <input
-              type="number"
-              id="packetLossThreshold"
-              name="monitoringThresholds.packetLoss"
-              value={localSettings.monitoringThresholds?.packetLoss || 10}
-              onChange={(e) => {
-                const value = parseInt(e.target.value) || 10;
-                setLocalSettings(prev => ({
-                  ...prev,
-                  monitoringThresholds: {
-                    ...prev.monitoringThresholds,
-                    packetLoss: value
-                  }
-                }));
-              }}
-              min="1"
-              max="100"
-              step="5"
             />
           </div>
         </div>

@@ -378,12 +378,6 @@ async function loadSettings(forceRefresh = false) {
         minDownload: 50,
         minUpload: 10,
         maxPing: 100
-      },
-      monitoringThresholds: {
-        maxPing: 100,
-        consecutiveFailures: 3,
-        consecutiveSuccesses: 2,
-        packetLoss: 10
       }
     };
   }
@@ -1169,9 +1163,10 @@ async function performQuickMonitor() {
       state.failureCount = 0;
     }
     
-    // Get thresholds from settings (configurable in UI)
-    const FAILURE_THRESHOLD = monitoringData.settings.monitoringThresholds?.consecutiveFailures || 3;
-    const SUCCESS_THRESHOLD = monitoringData.settings.monitoringThresholds?.consecutiveSuccesses || 2;
+    // Require 3 consecutive failures before marking host as DOWN (prevents false positives)
+    // For 1-second monitoring, this means 3 seconds of failures
+    const FAILURE_THRESHOLD = 3;
+    const SUCCESS_THRESHOLD = 2;
     
     // Host went DOWN (after 3 consecutive failures)
     if (!wasDown && state.failureCount >= FAILURE_THRESHOLD) {
@@ -1203,15 +1198,13 @@ async function performQuickMonitor() {
     }
     
     // Check for high latency (only for hosts that are UP)
-    const maxPingThreshold = monitoringData.settings.monitoringThresholds?.maxPing || 
-                             monitoringData.settings.thresholds?.maxPing || 100;
-    if (!isDown && result.ping > maxPingThreshold) {
+    if (!isDown && result.ping > (monitoringData.settings.thresholds?.maxPing || 100)) {
       if (checkNotificationCooldown(notificationState.lastHighLatency)) {
         triggerNotification('onHighLatency', {
           host: result.name,
           address: result.address,
           ping: result.ping,
-          threshold: maxPingThreshold,
+          threshold: monitoringData.settings.thresholds?.maxPing || 100,
           timestamp: result.timestamp
         });
         notificationState.lastHighLatency = Date.now();
