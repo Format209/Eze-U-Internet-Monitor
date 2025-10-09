@@ -7,7 +7,7 @@ const util = require('util');
 const fs = require('fs');
 const ping = require('ping');
 const schedule = require('node-schedule');
-const sqlite3 = require('sqlite3').verbose();
+const Database = require('better-sqlite3'); // Phase 2: Using better-sqlite3 for 5x performance
 const path = require('path');
 const axios = require('axios');
 const logger = require('./logger');
@@ -35,39 +35,50 @@ if (!fs.existsSync(dbDir)) {
   fs.mkdirSync(dbDir, { recursive: true });
 }
 
-const db = new sqlite3.Database(dbPath);
+// Phase 2: Initialize better-sqlite3 (synchronous, faster)
+const db = new Database(dbPath);
+db.pragma('journal_mode = WAL'); // Write-Ahead Logging for better concurrency
+db.pragma('synchronous = NORMAL'); // Faster writes, still safe
+db.pragma('cache_size = -64000'); // 64MB cache
 
-// Promisify database operations
-const dbRun = (sql, params = []) => {
-  return new Promise((resolve, reject) => {
-    db.run(sql, params, function(err) {
-      if (err) reject(err);
-      else resolve(this);
-    });
-  });
+logger.info('✓ Database initialized with better-sqlite3');
+
+// Phase 2: Async wrappers for better-sqlite3 (maintains compatibility with async/await code)
+const dbRun = async (sql, params = []) => {
+  try {
+    const stmt = db.prepare(sql);
+    const result = stmt.run(...params);
+    return { lastID: result.lastInsertRowid, changes: result.changes };
+  } catch (err) {
+    logger.error('dbRun error:', err.message);
+    throw err;
+  }
 };
 
-const dbGet = (sql, params = []) => {
-  return new Promise((resolve, reject) => {
-    db.get(sql, params, (err, row) => {
-      if (err) reject(err);
-      else resolve(row);
-    });
-  });
+const dbGet = async (sql, params = []) => {
+  try {
+    const stmt = db.prepare(sql);
+    return stmt.get(...params);
+  } catch (err) {
+    logger.error('dbGet error:', err.message);
+    throw err;
+  }
 };
 
-const dbAll = (sql, params = []) => {
-  return new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => {
-      if (err) reject(err);
-      else resolve(rows);
-    });
-  });
+const dbAll = async (sql, params = []) => {
+  try {
+    const stmt = db.prepare(sql);
+    return stmt.all(...params);
+  } catch (err) {
+    logger.error('dbAll error:', err.message);
+    throw err;
+  }
 };
 
-// Create tables
-db.serialize(() => {
-  db.run(`
+// Create tables (better-sqlite3 uses synchronous exec())
+(() => {
+  // Create speed_tests table
+  db.exec(`
     CREATE TABLE IF NOT EXISTS speed_tests (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       timestamp TEXT NOT NULL,
@@ -83,26 +94,33 @@ db.serialize(() => {
     )
   `);
 
-  // Add server and isp columns if they don't exist (migration for existing databases)
-  db.run(`ALTER TABLE speed_tests ADD COLUMN server TEXT`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
+  // Add columns if they don't exist (migration for existing databases)
+  try {
+    db.exec(`ALTER TABLE speed_tests ADD COLUMN server TEXT`);
+  } catch (err) {
+    if (!err.message.includes('duplicate column')) {
       logger.error('Error adding server column:', err.message);
     }
-  });
+  }
   
-  db.run(`ALTER TABLE speed_tests ADD COLUMN isp TEXT`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
+  try {
+    db.exec(`ALTER TABLE speed_tests ADD COLUMN isp TEXT`);
+  } catch (err) {
+    if (!err.message.includes('duplicate column')) {
       logger.error('Error adding isp column:', err.message);
     }
-  });
+  }
   
-  db.run(`ALTER TABLE speed_tests ADD COLUMN result_url TEXT`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
+  try {
+    db.exec(`ALTER TABLE speed_tests ADD COLUMN result_url TEXT`);
+  } catch (err) {
+    if (!err.message.includes('duplicate column')) {
       logger.error('Error adding result_url column:', err.message);
     }
-  });
+  }
 
-  db.run(`
+  // Create settings table
+  db.exec(`
     CREATE TABLE IF NOT EXISTS settings (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       testInterval INTEGER NOT NULL,
@@ -119,20 +137,25 @@ db.serialize(() => {
   `);
 
   // Add notificationSettings column if it doesn't exist (migration)
-  db.run(`ALTER TABLE settings ADD COLUMN notificationSettings TEXT`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
+  try {
+    db.exec(`ALTER TABLE settings ADD COLUMN notificationSettings TEXT`);
+  } catch (err) {
+    if (!err.message.includes('duplicate column')) {
       logger.error('Error adding notificationSettings column:', err.message);
     }
-  });
+  }
 
   // Add monitorInterval column if it doesn't exist (migration)
-  db.run(`ALTER TABLE settings ADD COLUMN monitorInterval INTEGER DEFAULT 5`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
+  try {
+    db.exec(`ALTER TABLE settings ADD COLUMN monitorInterval INTEGER DEFAULT 5`);
+  } catch (err) {
+    if (!err.message.includes('duplicate column')) {
       logger.error('Error adding monitorInterval column:', err.message);
     }
-  });
+  }
 
-  db.run(`
+  // Create live_monitoring table
+  db.exec(`
     CREATE TABLE IF NOT EXISTS live_monitoring (
       address TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -141,7 +164,8 @@ db.serialize(() => {
     )
   `);
 
-  db.run(`
+  // Create live_monitoring_history table
+  db.exec(`
     CREATE TABLE IF NOT EXISTS live_monitoring_history (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       address TEXT NOT NULL,
@@ -152,33 +176,33 @@ db.serialize(() => {
   `);
 
   // Create indexes for faster queries (Phase 1 Optimization)
-  db.run(`
-    CREATE INDEX IF NOT EXISTS idx_speed_tests_timestamp 
-    ON speed_tests(timestamp DESC)
-  `, (err) => {
-    if (!err) logger.debug('✓ Index created: idx_speed_tests_timestamp');
-  });
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_speed_tests_timestamp ON speed_tests(timestamp DESC)`);
+    logger.debug('✓ Index created: idx_speed_tests_timestamp');
+  } catch (err) {
+    // Index already exists
+  }
 
-  db.run(`
-    CREATE INDEX IF NOT EXISTS idx_live_monitoring_address 
-    ON live_monitoring(address)
-  `, (err) => {
-    if (!err) logger.debug('✓ Index created: idx_live_monitoring_address');
-  });
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_live_monitoring_address ON live_monitoring(address)`);
+    logger.debug('✓ Index created: idx_live_monitoring_address');
+  } catch (err) {
+    // Index already exists
+  }
 
-  db.run(`
-    CREATE INDEX IF NOT EXISTS idx_monitoring_history_address_timestamp 
-    ON live_monitoring_history(address, timestamp DESC)
-  `, (err) => {
-    if (!err) logger.debug('✓ Index created: idx_monitoring_history_address_timestamp');
-  });
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_monitoring_history_address_timestamp ON live_monitoring_history(address, timestamp DESC)`);
+    logger.debug('✓ Index created: idx_monitoring_history_address_timestamp');
+  } catch (err) {
+    // Index already exists
+  }
 
-  db.run(`
-    CREATE INDEX IF NOT EXISTS idx_monitoring_history_timestamp
-    ON live_monitoring_history(timestamp)
-  `, (err) => {
-    if (!err) logger.debug('✓ Index created: idx_monitoring_history_timestamp');
-  });
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_monitoring_history_timestamp ON live_monitoring_history(timestamp)`);
+    logger.debug('✓ Index created: idx_monitoring_history_timestamp');
+  } catch (err) {
+    // Index already exists
+  }
 
   // Initialize settings if not exists
   const defaultHosts = JSON.stringify([
@@ -187,11 +211,16 @@ db.serialize(() => {
     { address: '208.67.222.222', name: 'OpenDNS', enabled: false }
   ]);
 
-  db.run(`
-    INSERT OR IGNORE INTO settings (id, testInterval, pingHost, monitoringHosts, autoStart, notifications, minDownload, minUpload, maxPing)
-    VALUES (1, 30, '8.8.8.8', ?, 0, 1, 50, 10, 100)
-  `, [defaultHosts]);
-});
+  try {
+    const stmt = db.prepare(`
+      INSERT OR IGNORE INTO settings (id, testInterval, pingHost, monitoringHosts, autoStart, notifications, minDownload, minUpload, maxPing)
+      VALUES (1, 30, '8.8.8.8', ?, 0, 1, 50, 10, 100)
+    `);
+    stmt.run(defaultHosts);
+  } catch (err) {
+    logger.error('Error initializing settings:', err.message);
+  }
+})();
 
 // Settings cache (Phase 1 Optimization)
 const settingsCache = {
@@ -456,7 +485,58 @@ wss.on('connection', (ws) => {
 });
 
 // Broadcast to all connected clients
-function broadcast(data) {
+// Phase 2: WebSocket message batching for better performance
+let messageQueue = [];
+let batchTimer = null;
+const BATCH_INTERVAL = 100; // milliseconds
+const BATCH_SIZE_LIMIT = 50; // max messages per batch
+
+function queueMessage(data) {
+  // Don't batch initial data or critical updates
+  const noBatchTypes = ['initial', 'status', 'settings'];
+  if (noBatchTypes.includes(data.type)) {
+    return broadcastImmediate(data);
+  }
+  
+  messageQueue.push(data);
+  
+  // Flush if queue is full
+  if (messageQueue.length >= BATCH_SIZE_LIMIT) {
+    flushMessageQueue();
+    return;
+  }
+  
+  // Schedule batch send
+  if (!batchTimer) {
+    batchTimer = setTimeout(flushMessageQueue, BATCH_INTERVAL);
+  }
+}
+
+function flushMessageQueue() {
+  if (batchTimer) {
+    clearTimeout(batchTimer);
+    batchTimer = null;
+  }
+  
+  if (messageQueue.length === 0) return;
+  
+  if (messageQueue.length === 1) {
+    // Single message - send directly
+    broadcastImmediate(messageQueue[0]);
+  } else {
+    // Multiple messages - send as batch
+    broadcastImmediate({
+      type: 'batch',
+      messages: messageQueue,
+      count: messageQueue.length
+    });
+    logger.debug(`✓ Batched ${messageQueue.length} messages`);
+  }
+  
+  messageQueue = [];
+}
+
+function broadcastImmediate(data) {
   logger.debug(`Broadcasting to ${clients.size} connected clients: ${data.type}`);
   let sentCount = 0;
   clients.forEach((client) => {
@@ -469,6 +549,11 @@ function broadcast(data) {
   if (sentCount === 0) {
     logger.warn('No WebSocket clients connected!');
   }
+}
+
+// Main broadcast function - uses batching for performance
+function broadcast(data) {
+  queueMessage(data);
 }
 
 // Check if enough time has passed since last notification (cooldown)

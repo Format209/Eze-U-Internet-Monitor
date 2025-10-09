@@ -215,6 +215,19 @@ function App() {
         const message = JSON.parse(event.data);
         console.log(`📨 WebSocket message received:`, message.type, message);
         
+        // Phase 2: Handle batched messages
+        if (message.type === 'batch') {
+          console.log(`📦 Processing ${message.count} batched messages`);
+          message.messages.forEach(msg => {
+            handleWebSocketMessage(msg);
+          });
+          return;
+        }
+        
+        handleWebSocketMessage(message);
+      };
+
+      const handleWebSocketMessage = (message) => {
         switch (message.type) {
           case 'initial':
             setCurrentSpeed(message.data.currentSpeed);
@@ -256,6 +269,7 @@ function App() {
             break;
         }
       };
+      // End of handleWebSocketMessage
 
       websocket.onclose = () => {
         console.log('WebSocket disconnected');
