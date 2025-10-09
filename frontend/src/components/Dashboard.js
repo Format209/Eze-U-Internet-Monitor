@@ -210,7 +210,12 @@ function Dashboard({ currentSpeed, history, isMonitoring, liveMonitoring, toggle
     }
   };
 
-  const chartData = filteredHistory.map(item => ({
+  // Ensure data is in chronological order (oldest to newest) for proper graph display
+  const chronologicalHistory = [...filteredHistory].sort((a, b) => 
+    new Date(a.timestamp) - new Date(b.timestamp)
+  );
+
+  const chartData = chronologicalHistory.map(item => ({
     time: formatTimeLabel(item.timestamp),
     fullTime: format(new Date(item.timestamp), 'MMM dd, yyyy HH:mm:ss'),
     download: item.download,
