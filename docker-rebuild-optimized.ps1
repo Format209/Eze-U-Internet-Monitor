@@ -11,7 +11,9 @@ Write-Host ""
 
 # Step 2: Rebuild with no cache
 Write-Host "🔨 Step 2: Rebuilding container (this may take 5-10 minutes)..." -ForegroundColor Yellow
+Write-Host "   - Upgrading to Node.js 20 (better-sqlite3 requirement)" -ForegroundColor Gray
 Write-Host "   - Adding build tools for better-sqlite3" -ForegroundColor Gray
+Write-Host "   - Adding Python distutils support" -ForegroundColor Gray
 Write-Host "   - Increasing memory limit to 1GB" -ForegroundColor Gray
 Write-Host "   - Increasing CPU limit to 2.0" -ForegroundColor Gray
 Write-Host "   - Adding Node.js optimization flags" -ForegroundColor Gray

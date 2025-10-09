@@ -1,6 +1,6 @@
 # Multi-stage Docker build for Ezé-U Internet Monitor
 # Stage 1: Build frontend
-FROM node:18-alpine AS frontend-builder
+FROM node:20-alpine AS frontend-builder
 
 WORKDIR /app/frontend
 
@@ -17,7 +17,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # Stage 2: Backend with Ookla CLI
-FROM node:18-alpine AS backend
+FROM node:20-alpine AS backend
 
 WORKDIR /app
 
@@ -30,6 +30,8 @@ RUN apk add --no-cache \
     bash \
     build-base \
     python3 \
+    python3-dev \
+    py3-setuptools \
     make \
     g++
 
@@ -43,7 +45,7 @@ COPY backend/package*.json ./backend/
 
 # Install backend dependencies
 WORKDIR /app/backend
-RUN npm ci --only=production
+RUN npm ci --omit=dev
 
 # Copy backend source
 COPY backend/ ./
