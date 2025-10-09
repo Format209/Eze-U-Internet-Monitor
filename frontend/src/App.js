@@ -242,10 +242,10 @@ function App() {
               upload: message.data.upload,
               ping: message.data.ping
             });
-            // Refresh history from server after a brief delay to ensure DB is updated
-            setTimeout(() => {
-              fetchHistory();
-            }, 500);
+            break;
+          case 'history':
+            // Directly update history from broadcast (fixes cache timing issue)
+            setHistory(message.data);
             break;
           case 'ping':
             setCurrentSpeed(prev => ({ ...prev, ping: message.data.ping }));

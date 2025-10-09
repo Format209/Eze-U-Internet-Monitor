@@ -1061,7 +1061,13 @@ async function performSpeedTest(retryCount = 0) {
       timestamp: testResult.timestamp
     });
 
+    // Broadcast speed test result
     broadcast({ type: 'speedtest', data: testResult });
+    
+    // Broadcast updated history immediately (fixes refresh issue with cache)
+    const updatedHistory = await loadHistory(100);
+    broadcast({ type: 'history', data: updatedHistory });
+    
     console.log('✅ Speed test completed successfully:', testResult);
     return testResult;
     

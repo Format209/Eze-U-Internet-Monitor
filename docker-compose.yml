@@ -30,9 +30,9 @@ services:
     # Recommended: 1GB memory, 2 CPUs for optimal performance
     deploy:
       resources:
-        limits:
-          cpus: '2.0'      # Increased from 1.0 (handles compression + database operations)
-          memory: 1G       # Increased from 512M (accommodates caching + compression)
+        #limits:
+          #cpus: '2.0'      # Increased from 1.0 (handles compression + database operations)
+          #memory: 1G       # Increased from 512M (accommodates caching + compression)
         reservations:
           cpus: '1.0'      # Increased from 0.5
           memory: 512M     # Increased from 256M
