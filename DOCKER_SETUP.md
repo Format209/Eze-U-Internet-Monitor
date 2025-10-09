@@ -19,6 +19,12 @@ This guide explains how to run the Internet Monitoring Application in Docker con
 ### 1. Build and Start Container
 
 ```powershell
+# Clone the repository (if not already done)
+git clone https://github.com/Format209/Eze-U-Internet-Monitor.git
+
+# Navigate to project directory
+cd Eze-U-Internet-Monitor
+
 # Build the Docker image
 docker-compose build
 
