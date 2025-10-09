@@ -249,6 +249,32 @@ function invalidateMonitoringCache() {
     }
   }
 
+  // Add downloadBytes and uploadBytes columns if they don't exist (migration)
+  try {
+    db.exec(`ALTER TABLE speed_tests ADD COLUMN downloadBytes INTEGER`);
+  } catch (err) {
+    if (!err.message.includes('duplicate column')) {
+      logger.error('Error adding downloadBytes column:', err.message);
+    }
+  }
+
+  try {
+    db.exec(`ALTER TABLE speed_tests ADD COLUMN uploadBytes INTEGER`);
+  } catch (err) {
+    if (!err.message.includes('duplicate column')) {
+      logger.error('Error adding uploadBytes column:', err.message);
+    }
+  }
+
+  // Add monthlyDataCap column to settings if it doesn't exist (migration)
+  try {
+    db.exec(`ALTER TABLE settings ADD COLUMN monthlyDataCap TEXT DEFAULT NULL`);
+  } catch (err) {
+    if (!err.message.includes('duplicate column')) {
+      logger.error('Error adding monthlyDataCap column:', err.message);
+    }
+  }
+
   // Create live_monitoring table
   db.exec(`
     CREATE TABLE IF NOT EXISTS live_monitoring (
@@ -388,7 +414,8 @@ async function loadSettings(forceRefresh = false) {
         minUpload: 10,
         maxPing: 100
       },
-      logLevel: 'INFO'  // Default log level
+      logLevel: 'INFO',  // Default log level
+      monthlyDataCap: null  // No cap by default (e.g., "5 GB" or "1 TB")
     };
   }
   
@@ -414,7 +441,8 @@ async function loadSettings(forceRefresh = false) {
       minUpload: row.minUpload,
       maxPing: row.maxPing
     },
-    logLevel: row.logLevel || 'INFO'
+    logLevel: row.logLevel || 'INFO',
+    monthlyDataCap: row.monthlyDataCap || null
   };
   
   // Update cache
@@ -441,7 +469,8 @@ async function saveSettings(settings) {
         minDownload = ?,
         minUpload = ?,
         maxPing = ?,
-        logLevel = ?
+        logLevel = ?,
+        monthlyDataCap = ?
     WHERE id = 1
   `, [
     settings.testInterval,
@@ -454,7 +483,8 @@ async function saveSettings(settings) {
     settings.thresholds.minDownload,
     settings.thresholds.minUpload,
     settings.thresholds.maxPing,
-    settings.logLevel || 'INFO'
+    settings.logLevel || 'INFO',
+    settings.monthlyDataCap || null
   ]);
 }
 
@@ -469,11 +499,59 @@ async function loadHistory(limit = 100) {
   return rows.reverse();
 }
 
+// Parse data cap string (e.g., "5 GB", "1 TB") to bytes
+function parseDataCapToBytes(capString) {
+  if (!capString) return null;
+  
+  const match = capString.trim().match(/^(\d+(?:\.\d+)?)\s*(KB|MB|GB|TB|PB)$/i);
+  if (!match) return null;
+  
+  const value = parseFloat(match[1]);
+  const unit = match[2].toUpperCase();
+  
+  const multipliers = {
+    'KB': 1024,
+    'MB': 1024 * 1024,
+    'GB': 1024 * 1024 * 1024,
+    'TB': 1024 * 1024 * 1024 * 1024,
+    'PB': 1024 * 1024 * 1024 * 1024 * 1024
+  };
+  
+  return value * multipliers[unit];
+}
+
+// Check if monthly data cap has been reached
+async function isMonthlyDataCapReached() {
+  const settings = await loadSettings();
+  if (!settings.monthlyDataCap) return false;
+  
+  const capInBytes = parseDataCapToBytes(settings.monthlyDataCap);
+  if (!capInBytes) return false;
+  
+  // Get first and last day of current month
+  const now = new Date();
+  const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+  
+  // Query total bytes used this month
+  const result = await dbGet(`
+    SELECT 
+      COALESCE(SUM(downloadBytes), 0) + COALESCE(SUM(uploadBytes), 0) as totalBytes
+    FROM speed_tests
+    WHERE timestamp >= ? AND timestamp <= ?
+  `, [firstDay.toISOString(), lastDay.toISOString()]);
+  
+  const usedBytes = result.totalBytes || 0;
+  logger.debug(`Monthly data usage: ${usedBytes} / ${capInBytes} bytes`);
+  
+  return usedBytes >= capInBytes;
+}
+
 // Save speed test to database
 async function saveSpeedTest(result) {
   await dbRun(`
-    INSERT INTO speed_tests (timestamp, download, upload, ping, jitter, downloadLatency, uploadLatency, server, isp, result_url)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO speed_tests (timestamp, download, upload, ping, jitter, downloadLatency, uploadLatency, server, isp, result_url, downloadBytes, uploadBytes)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, [
     result.timestamp,
     result.download,
@@ -484,7 +562,9 @@ async function saveSpeedTest(result) {
     result.uploadLatency || null,
     result.server || null,
     result.isp || null,
-    result.resultUrl || null
+    result.resultUrl || null,
+    result.downloadBytes || null,
+    result.uploadBytes || null
   ]);
   
   // Phase 3: Invalidate history cache when new test added
@@ -939,6 +1019,14 @@ async function performSpeedTest(retryCount = 0) {
   const TIMEOUT = 90000; // 90 seconds timeout
   const RETRY_DELAY = 10000; // 10 seconds between retries
   
+  // Check if monthly data cap has been reached
+  const capReached = await isMonthlyDataCapReached();
+  if (capReached) {
+    const settings = await loadSettings();
+    logger.warn(`⚠️ Monthly data cap of ${settings.monthlyDataCap} has been reached. Speed test blocked.`);
+    throw new Error(`Monthly data cap of ${settings.monthlyDataCap} reached. Speed tests will resume next month.`);
+  }
+  
   try {
     logger.info(`Starting Ookla CLI speed test... (attempt ${retryCount + 1}/${MAX_RETRIES + 1})`);
     
@@ -1000,7 +1088,9 @@ async function performSpeedTest(retryCount = 0) {
       uploadLatency: parseFloat(uploadLatency.toFixed(2)),
       server: result.server?.name || 'Unknown',
       isp: result.isp || 'Unknown',
-      resultUrl: result.result?.url || null
+      resultUrl: result.result?.url || null,
+      downloadBytes: result.download?.bytes || null,
+      uploadBytes: result.upload?.bytes || null
     };
     
     console.log('✅ Speed test details:', {
@@ -1388,6 +1478,43 @@ app.get('/api/history', async (req, res) => {
     }
   } catch (error) {
     logger.error('History endpoint error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get monthly data usage
+app.get('/api/monthly-usage', async (req, res) => {
+  try {
+    const settings = await loadSettings();
+    
+    // Get first and last day of current month
+    const now = new Date();
+    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+    
+    // Query total bytes used this month
+    const result = await dbGet(`
+      SELECT 
+        COALESCE(SUM(downloadBytes), 0) as downloadBytes,
+        COALESCE(SUM(uploadBytes), 0) as uploadBytes
+      FROM speed_tests
+      WHERE timestamp >= ? AND timestamp <= ?
+    `, [firstDay.toISOString(), lastDay.toISOString()]);
+    
+    const totalBytes = (result.downloadBytes || 0) + (result.uploadBytes || 0);
+    const capInBytes = parseDataCapToBytes(settings.monthlyDataCap);
+    
+    res.json({
+      downloadBytes: result.downloadBytes || 0,
+      uploadBytes: result.uploadBytes || 0,
+      totalBytes,
+      monthlyDataCap: settings.monthlyDataCap,
+      capInBytes,
+      capReached: capInBytes ? totalBytes >= capInBytes : false,
+      percentageUsed: capInBytes ? Math.min(100, (totalBytes / capInBytes) * 100) : 0
+    });
+  } catch (error) {
+    logger.error('Monthly usage endpoint error:', error);
     res.status(500).json({ error: error.message });
   }
 });

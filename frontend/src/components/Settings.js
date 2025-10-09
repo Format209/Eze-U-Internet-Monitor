@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Save, RotateCcw, Plus, Trash2, Settings as SettingsIcon, Activity, AlertTriangle, Heart, FileText, Calendar, Download, ArrowUpDown, ArrowUp, ArrowDown, Bell, Monitor, Mail, Send, MessageSquare, Hash, Webhook, Smartphone, X, Check } from 'lucide-react';
+import { Save, RotateCcw, Plus, Trash2, Settings as SettingsIcon, Activity, AlertTriangle, Heart, FileText, Calendar, Download, ArrowUpDown, ArrowUp, ArrowDown, Bell, Monitor, Mail, Send, MessageSquare, Hash, Smartphone, X, Check } from 'lucide-react';
 import { format } from 'date-fns';
 import './Settings.css';
 
@@ -18,6 +18,7 @@ function Settings({ settings, updateSettings }) {
     ...settings,
     monitorInterval: settings.monitorInterval || 5,
     logLevel: settings.logLevel || 'INFO',
+    monthlyDataCap: settings.monthlyDataCap || '',
     monitoringHosts: settings.monitoringHosts || [
       { address: '8.8.8.8', name: 'Google DNS', enabled: true },
       { address: '1.1.1.1', name: 'Cloudflare DNS', enabled: true },
@@ -55,6 +56,20 @@ function Settings({ settings, updateSettings }) {
   const [newHost, setNewHost] = useState({ address: '', name: '', enabled: true });
   const [notificationConfigModal, setNotificationConfigModal] = useState({ isOpen: false, type: null });
   
+  // Parse monthlyDataCap into separate value and unit
+  const parseDataCap = (capString) => {
+    if (!capString) return { value: '', unit: 'GB' };
+    const match = capString.trim().match(/^(\d+(?:\.\d+)?)\s*(KB|MB|GB|TB|PB)$/i);
+    if (match) {
+      return { value: match[1], unit: match[2].toUpperCase() };
+    }
+    return { value: '', unit: 'GB' };
+  };
+  
+  const initialDataCap = parseDataCap(settings.monthlyDataCap);
+  const [dataCapValue, setDataCapValue] = useState(initialDataCap.value);
+  const [dataCapUnit, setDataCapUnit] = useState(initialDataCap.unit);
+  
   // Report tab state
   const [reportData, setReportData] = useState([]);
   const [reportLoading, setReportLoading] = useState(false);
@@ -90,7 +105,15 @@ function Settings({ settings, updateSettings }) {
     setSaveMessage('');
     
     try {
-      await updateSettings(localSettings);
+      // Combine data cap value and unit into a single string
+      const monthlyDataCap = dataCapValue && dataCapUnit ? `${dataCapValue} ${dataCapUnit}` : '';
+      
+      const settingsToSave = {
+        ...localSettings,
+        monthlyDataCap
+      };
+      
+      await updateSettings(settingsToSave);
       setSaveMessage('Settings saved successfully!');
       setTimeout(() => setSaveMessage(''), 3000);
     } catch (error) {
@@ -102,6 +125,9 @@ function Settings({ settings, updateSettings }) {
 
   const handleReset = () => {
     setLocalSettings(settings);
+    const resetDataCap = parseDataCap(settings.monthlyDataCap);
+    setDataCapValue(resetDataCap.value);
+    setDataCapUnit(resetDataCap.unit);
     setSaveMessage('Settings reset');
     setTimeout(() => setSaveMessage(''), 3000);
   };
@@ -172,6 +198,7 @@ function Settings({ settings, updateSettings }) {
     if (activeTab === 'report') {
       fetchReportData();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, reportTimeRange, customStartDate, customEndDate]);
 
   // Export report as CSV
@@ -475,6 +502,46 @@ function Settings({ settings, updateSettings }) {
               <option value="WARN">WARN - Show only warnings and errors</option>
               <option value="ERROR">ERROR - Show only errors (least verbose)</option>
             </select>
+          </div>
+
+          <div className="setting-item">
+            <label htmlFor="dataCapValue">
+              Monthly Data Cap (Optional)
+              <span className="help-text">Set a monthly limit for speedtest data usage. Leave empty for unlimited. Speed tests will be blocked when the cap is reached until next month.</span>
+            </label>
+            <div className="data-cap-input-group">
+              <input
+                type="number"
+                id="dataCapValue"
+                name="dataCapValue"
+                value={dataCapValue}
+                onChange={(e) => setDataCapValue(e.target.value)}
+                placeholder="e.g., 5, 10, 100"
+                min="0"
+                step="0.1"
+              />
+              <select
+                id="dataCapUnit"
+                name="dataCapUnit"
+                value={dataCapUnit}
+                onChange={(e) => setDataCapUnit(e.target.value)}
+              >
+                <option value="MB">MB</option>
+                <option value="GB">GB</option>
+                <option value="TB">TB</option>
+                <option value="PB">PB</option>
+              </select>
+            </div>
+            {dataCapValue && (
+              <div className="data-cap-preview">
+                Cap set to: <strong>{dataCapValue} {dataCapUnit}</strong> per month
+              </div>
+            )}
+            {!dataCapValue && (
+              <div className="data-cap-preview unlimited">
+                No limit - Unlimited data usage
+              </div>
+            )}
           </div>
         </div>
       )}

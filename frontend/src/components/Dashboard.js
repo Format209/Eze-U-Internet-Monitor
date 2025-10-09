@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { format } from 'date-fns';
-import { Activity, Zap, Upload, Download, Trash2, Clock, Radio, X, TrendingUp, RefreshCw } from 'lucide-react';
+import { Activity, Zap, Upload, Download, Trash2, Clock, Radio, X, TrendingUp, RefreshCw, AlertTriangle } from 'lucide-react';
 import './Dashboard.css';
 
 // Dynamic backend URL configuration
@@ -21,12 +21,12 @@ function Dashboard({ currentSpeed, history, isMonitoring, liveMonitoring, toggle
   const [isTestRunning, setIsTestRunning] = useState(false);
   const [errorMessage, setErrorMessage] = useState(null);
   const [externalIP, setExternalIP] = useState('Loading...');
-  const [isp, setIsp] = useState('');
   const [nextTestTime, setNextTestTime] = useState(null);
   const [selectedHost, setSelectedHost] = useState(null);
   const [hostTimeRange, setHostTimeRange] = useState('1h');
   const [hostHistory, setHostHistory] = useState([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [monthlyUsage, setMonthlyUsage] = useState(null);
 
   const handleRunTest = async () => {
     setIsTestRunning(true);
@@ -46,17 +46,6 @@ function Dashboard({ currentSpeed, history, isMonitoring, liveMonitoring, toggle
         const response = await fetch('https://api.ipify.org?format=json');
         const data = await response.json();
         setExternalIP(data.ip);
-        
-        // Try to get ISP info
-        try {
-          const ispResponse = await fetch(`https://ipapi.co/${data.ip}/json/`);
-          const ispData = await ispResponse.json();
-          if (ispData.org) {
-            setIsp(ispData.org);
-          }
-        } catch (e) {
-          // ISP lookup is optional
-        }
       } catch (error) {
         setExternalIP('Unable to fetch');
       }
@@ -141,6 +130,24 @@ function Dashboard({ currentSpeed, history, isMonitoring, liveMonitoring, toggle
 
     fetchHostHistory();
   }, [selectedHost, hostTimeRange]);
+
+  // Fetch monthly usage
+  useEffect(() => {
+    const fetchMonthlyUsage = async () => {
+      try {
+        const response = await fetch(`${BACKEND_URL}/api/monthly-usage`);
+        const data = await response.json();
+        setMonthlyUsage(data);
+      } catch (error) {
+        console.error('Error fetching monthly usage:', error);
+      }
+    };
+
+    fetchMonthlyUsage();
+    // Refresh every 30 seconds
+    const interval = setInterval(fetchMonthlyUsage, 30000);
+    return () => clearInterval(interval);
+  }, [history]); // Refresh when history updates
 
   // Check for errors in last history entry
   useEffect(() => {
@@ -311,6 +318,40 @@ function Dashboard({ currentSpeed, history, isMonitoring, liveMonitoring, toggle
   const downloadLatencyStats = calculateStats(chartData, 'downloadLatency');
   const uploadLatencyStats = calculateStats(chartData, 'uploadLatency');
 
+  // Helper function to convert bytes to appropriate unit (KB, MB, GB, TB, PB) - auto-adapting
+  const formatBytes = (bytes) => {
+    if (bytes === 0) return { value: '0', unit: 'MB' };
+    
+    const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+    const k = 1024;
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    const value = bytes / Math.pow(k, i);
+    
+    // Format with appropriate decimal places
+    const formattedValue = value >= 100 ? value.toFixed(1) : value.toFixed(2);
+    
+    return { 
+      value: formattedValue, 
+      unit: units[i] 
+    };
+  };
+
+  // Calculate total data usage for the selected time range
+  const calculateDataUsage = () => {
+    const totalDownloadBytes = filteredHistory.reduce((sum, item) => sum + (item.downloadBytes || 0), 0);
+    const totalUploadBytes = filteredHistory.reduce((sum, item) => sum + (item.uploadBytes || 0), 0);
+    const totalBytes = totalDownloadBytes + totalUploadBytes;
+    
+    return {
+      download: formatBytes(totalDownloadBytes),
+      upload: formatBytes(totalUploadBytes),
+      total: formatBytes(totalBytes),
+      testCount: filteredHistory.length
+    };
+  };
+
+  const dataUsage = calculateDataUsage();
+
   const getSpeedStatus = (speed, threshold, isReverse = false) => {
     if (speed === 0) return 'inactive';
     if (isReverse) {
@@ -332,6 +373,34 @@ function Dashboard({ currentSpeed, history, isMonitoring, liveMonitoring, toggle
             <span className="error-icon">⚠️</span>
             <p>{errorMessage}</p>
             <button onClick={() => setErrorMessage(null)} className="close-error">×</button>
+          </div>
+        </div>
+      )}
+
+      {/* Monthly Data Cap Warning */}
+      {monthlyUsage && monthlyUsage.monthlyDataCap && (
+        <div className={`data-cap-warning ${monthlyUsage.capReached ? 'critical' : monthlyUsage.percentageUsed >= 80 ? 'warning' : 'info'}`}>
+          <div className="cap-warning-content">
+            <AlertTriangle size={24} className="cap-warning-icon" />
+            <div className="cap-warning-details">
+              <h4>
+                {monthlyUsage.capReached 
+                  ? '🚫 Monthly Data Cap Reached!' 
+                  : monthlyUsage.percentageUsed >= 80 
+                    ? '⚠️ Approaching Data Cap' 
+                    : '📊 Monthly Data Usage'}
+              </h4>
+              <p>
+                {formatBytes(monthlyUsage.totalBytes).value} {formatBytes(monthlyUsage.totalBytes).unit} of {monthlyUsage.monthlyDataCap} used this month ({monthlyUsage.percentageUsed.toFixed(1)}%)
+                {monthlyUsage.capReached && ' - Speed tests are disabled until next month'}
+              </p>
+              <div className="cap-progress-bar">
+                <div 
+                  className="cap-progress-fill" 
+                  style={{ width: `${Math.min(100, monthlyUsage.percentageUsed)}%` }}
+                ></div>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -507,6 +576,46 @@ function Dashboard({ currentSpeed, history, isMonitoring, liveMonitoring, toggle
             </button>
           </div>
         </div>
+
+        {/* Data Usage Summary Box */}
+        {chartData.length > 0 && (
+          <div className="data-usage-summary">
+            <div className="data-usage-title">
+              <Activity size={18} />
+              <span>Speedtest Data Usage ({timeRange.toUpperCase()})</span>
+            </div>
+            <div className="data-usage-stats">
+              <div className="usage-stat">
+                <Download size={16} />
+                <div className="usage-details">
+                  <span className="usage-label">Download</span>
+                  <span className="usage-value">{dataUsage.download.value} {dataUsage.download.unit}</span>
+                </div>
+              </div>
+              <div className="usage-stat">
+                <Upload size={16} />
+                <div className="usage-details">
+                  <span className="usage-label">Upload</span>
+                  <span className="usage-value">{dataUsage.upload.value} {dataUsage.upload.unit}</span>
+                </div>
+              </div>
+              <div className="usage-stat total">
+                <Activity size={16} />
+                <div className="usage-details">
+                  <span className="usage-label">Total Data</span>
+                  <span className="usage-value">{dataUsage.total.value} {dataUsage.total.unit}</span>
+                </div>
+              </div>
+              <div className="usage-stat">
+                <Zap size={16} />
+                <div className="usage-details">
+                  <span className="usage-label">Tests Run</span>
+                  <span className="usage-value">{dataUsage.testCount}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {chartData.length > 0 ? (
           <div className="charts-grid">

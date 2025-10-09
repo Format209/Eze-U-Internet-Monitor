@@ -196,6 +196,44 @@
   padding: 12px;
 }
 
+/* Data Cap Input Group */
+.data-cap-input-group {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.data-cap-input-group input[type="number"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.data-cap-input-group select {
+  width: 120px;
+  flex-shrink: 0;
+}
+
+.data-cap-preview {
+  margin-top: 10px;
+  padding: 10px 15px;
+  background: rgba(6, 182, 212, 0.1);
+  border: 1px solid rgba(6, 182, 212, 0.3);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  color: #06b6d4;
+}
+
+.data-cap-preview.unlimited {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.3);
+  color: #10b981;
+}
+
+.data-cap-preview strong {
+  color: #e2e8f0;
+  font-weight: 700;
+}
+
 .setting-item.checkbox {
   display: flex;
   align-items: center;
