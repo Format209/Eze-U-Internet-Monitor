@@ -20,30 +20,13 @@ services:
       # Phase 2/3: Better-sqlite3 and caching need more memory
       - NODE_OPTIONS=--max-old-space-size=768
     restart: unless-stopped
-    networks:
-      - monitor-network
-    # Use host network mode for better ping/network access (optional)
-    # network_mode: host  # Uncomment if you need direct host network access
     
-    # Resource limits - UPDATED for Phase 2/3 optimizations (better-sqlite3, compression, caching)
-    # Phase 2 adds: 64MB (sqlite3 cache) + Phase 3 adds: 10MB (query cache + compression buffers)
-    # Recommended: 1GB memory, 2 CPUs for optimal performance
-    deploy:
-      resources:
-        #limits:
-          #cpus: '2.0'      # Increased from 1.0 (handles compression + database operations)
-          #memory: 1G       # Increased from 512M (accommodates caching + compression)
-        reservations:
-          cpus: '1.0'      # Increased from 0.5
-          memory: 512M     # Increased from 256M
-    
-    # Alternative: Remove limits entirely for maximum performance
-    # Comment out the deploy section above if you want unrestricted resources
+    # Resource limits using legacy format (compatible with Docker Compose 1.29.2)
+    # Recommended: 1GB memory, 2 CPUs for optimal performance with Phase 2/3 optimizations
+    mem_limit: 1g
+    cpus: 2.0
+    mem_reservation: 512m
 
 networks:
-  monitor-network:
+  default:
     driver: bridge
-
-volumes:
-  monitor-data:
-    driver: local
