@@ -1064,22 +1064,34 @@ function Dashboard({ currentSpeed, history, isMonitoring, liveMonitoring, toggle
                     avg: hostHistory.reduce((sum, h) => sum + h.ping, 0) / hostHistory.length
                   } : { min: 0, max: 0, avg: 0 };
 
-                  // Generate ticks for host history chart
+                  // Calculate Y-axis domain: always start at -1 (offline), end at max ping or 100 (whichever is higher)
+                  const yAxisDomain = [-1, Math.max(hostStats.max, 100)];
+
+                  // Generate ticks for host history chart - ensure unique values
                   const generateHostXAxisTicks = () => {
                     const dataLength = hostHistory.length;
                     if (dataLength === 0) return [];
                     if (dataLength <= 30) {
-                      return hostHistory.map(d => d.time);
+                      return hostHistory.map((d, idx) => d.time);
                     }
                     const tickCount = Math.min(15, dataLength);
                     const step = Math.floor(dataLength / tickCount);
                     const ticks = [];
+                    const indices = new Set(); // Track used indices to avoid duplicates
+                    
                     for (let i = 0; i < dataLength; i += step) {
-                      ticks.push(hostHistory[i].time);
+                      if (!indices.has(i)) {
+                        indices.add(i);
+                        ticks.push(hostHistory[i].time);
+                      }
                     }
-                    if (ticks[ticks.length - 1] !== hostHistory[dataLength - 1].time) {
-                      ticks.push(hostHistory[dataLength - 1].time);
+                    
+                    // Add last point if not already included
+                    const lastIndex = dataLength - 1;
+                    if (!indices.has(lastIndex)) {
+                      ticks.push(hostHistory[lastIndex].time);
                     }
+                    
                     return ticks;
                   };
 
@@ -1123,6 +1135,7 @@ function Dashboard({ currentSpeed, history, isMonitoring, liveMonitoring, toggle
                               stroke="#94a3b8" 
                               style={{ fontSize: '12px' }}
                               label={{ value: 'Ping (ms)', angle: -90, position: 'insideLeft', style: { fill: '#94a3b8' } }}
+                              domain={yAxisDomain}
                             />
                             <Tooltip
                               contentStyle={{
