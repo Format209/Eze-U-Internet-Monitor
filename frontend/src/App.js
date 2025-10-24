@@ -76,7 +76,7 @@ function App() {
   // Fetch history function (defined early so it can be used in WebSocket)
   const fetchHistory = useCallback(async () => {
     try {
-      const response = await axios.get('/api/history?limit=100');
+      const response = await axios.get('/api/history?limit=1000');
       setHistory(response.data);
     } catch (error) {
       console.error('Error fetching history:', error);
