@@ -1,6 +1,6 @@
 # Ezé-U Internet Monitor
 
-A modern, real-time internet monitoring application with advanced speed testing capabilities. Monitor your internet connection with live data visualization, automated speed tests, multiple host monitoring, and customizable thresholds.
+A modern, real-time internet monitoring application with advanced speed testing capabilities. Monitor your internet connection with live data visualization, automated speed tests, multiple host monitoring, and customizable thresholds. This project has been vibe-coded to see how possible it is to create a fully functional internet monitoring tool. And although it has been vibe-coded it was still as challenging and fun to build! with more features and fixes planned for future releases.
 
 ![React 18](https://img.shields.io/badge/react-18-61dafb)
 ![Node.js](https://img.shields.io/badge/node.js-express-339933)
