@@ -645,7 +645,7 @@ async function initializeData() {
     logger.setLevel(monitoringData.settings.logLevel);
   }
   
-  monitoringData.history = await loadHistory(100);
+  monitoringData.history = await loadHistory(1000);
   monitoringData.liveMonitoring = await loadLiveMonitoring();
   logger.success('Database loaded successfully');
 }
