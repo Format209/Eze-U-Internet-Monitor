@@ -1768,7 +1768,7 @@ function Settings({ settings, updateSettings }) {
                     <div className="custom-date-picker">
                       <div className="date-input-group">
                         <label htmlFor="startDate">
-                          <Calendar size={16} />
+                          <Calendar size={16} style={{ stroke: '#06b6d4', color: '#06b6d4' }} />
                           Start Date:
                         </label>
                         <input
@@ -1780,7 +1780,7 @@ function Settings({ settings, updateSettings }) {
                       </div>
                       <div className="date-input-group">
                         <label htmlFor="endDate">
-                          <Calendar size={16} />
+                          <Calendar size={16} style={{ stroke: '#06b6d4', color: '#06b6d4' }} />
                           End Date:
                         </label>
                         <input

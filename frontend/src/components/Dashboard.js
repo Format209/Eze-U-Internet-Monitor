@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { format } from 'date-fns';
-import { Activity, Zap, Upload, Download, Trash2, Clock, Radio, X, TrendingUp, RefreshCw, AlertTriangle } from 'lucide-react';
+import { Activity, Zap, Upload, Download, Trash2, Clock, Radio, X, TrendingUp, RefreshCw, AlertTriangle, Calendar } from 'lucide-react';
 import './Dashboard.css';
 
 // Dynamic backend URL configuration
@@ -27,6 +27,9 @@ function Dashboard({ currentSpeed, history, isMonitoring, liveMonitoring, toggle
   const [hostHistory, setHostHistory] = useState([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [monthlyUsage, setMonthlyUsage] = useState(null);
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
+  const [showCustomPicker, setShowCustomPicker] = useState(false);
 
   const handleRunTest = async () => {
     setIsTestRunning(true);
@@ -109,6 +112,9 @@ function Dashboard({ currentSpeed, history, isMonitoring, liveMonitoring, toggle
               case '7d':
                 timeLabel = format(date, 'MM/dd HH:mm');
                 break;
+              case '30d':
+                timeLabel = format(date, 'MM/dd');
+                break;
               default:
                 timeLabel = format(date, 'HH:mm');
             }
@@ -177,6 +183,19 @@ function Dashboard({ currentSpeed, history, isMonitoring, liveMonitoring, toggle
       case '7d':
         cutoffTime = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
         break;
+      case '30d':
+        cutoffTime = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        break;
+      case 'custom':
+        if (customStartDate && customEndDate) {
+          const startDate = new Date(customStartDate);
+          const endDate = new Date(customEndDate);
+          return history.filter(item => {
+            const itemDate = new Date(item.timestamp);
+            return itemDate >= startDate && itemDate <= endDate;
+          });
+        }
+        return history;
       case 'all':
       default:
         return history;
@@ -210,6 +229,10 @@ function Dashboard({ currentSpeed, history, isMonitoring, liveMonitoring, toggle
       case '24h':
         return format(date, 'HH:mm');
       case '7d':
+        return format(date, 'MM/dd HH:mm');
+      case '30d':
+        return format(date, 'MM/dd');
+      case 'custom':
         return format(date, 'MM/dd HH:mm');
       case 'all':
       default:
@@ -548,33 +571,94 @@ function Dashboard({ currentSpeed, history, isMonitoring, liveMonitoring, toggle
               className={timeRange === '1h' ? 'active' : ''}
               onClick={() => setTimeRange('1h')}
             >
-              1H
+              1h
             </button>
             <button
               className={timeRange === '6h' ? 'active' : ''}
               onClick={() => setTimeRange('6h')}
             >
-              6H
+              6h
             </button>
             <button
               className={timeRange === '24h' ? 'active' : ''}
               onClick={() => setTimeRange('24h')}
             >
-              24H
+              24h
             </button>
             <button
               className={timeRange === '7d' ? 'active' : ''}
               onClick={() => setTimeRange('7d')}
             >
-              7D
+              7d
             </button>
             <button
-              className={timeRange === 'all' ? 'active' : ''}
-              onClick={() => setTimeRange('all')}
+              className={timeRange === '30d' ? 'active' : ''}
+              onClick={() => setTimeRange('30d')}
             >
-              All
+              30d
+            </button>
+            <button
+              className={timeRange === 'custom' ? 'active' : ''}
+              onClick={() => {
+                setTimeRange('custom');
+                setShowCustomPicker(!showCustomPicker);
+              }}
+            >
+              Custom
             </button>
           </div>
+          
+          {/* Custom Date Range Picker */}
+          {showCustomPicker && (
+            <div className="custom-date-picker">
+              <div className="date-inputs">
+                <div className="date-input-group">
+                  <label>
+                    <Calendar size={16} style={{ stroke: '#06b6d4', color: '#06b6d4' }} />
+                    Start Date & Time:
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={customStartDate}
+                    onChange={(e) => setCustomStartDate(e.target.value)}
+                    max={customEndDate || undefined}
+                  />
+                </div>
+                <div className="date-input-group">
+                  <label>
+                    <Calendar size={16} style={{ stroke: '#06b6d4', color: '#06b6d4' }} />
+                    End Date & Time:
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={customEndDate}
+                    onChange={(e) => setCustomEndDate(e.target.value)}
+                    min={customStartDate || undefined}
+                  />
+                </div>
+              </div>
+              <div className="date-picker-actions">
+                <button
+                  className="apply-btn"
+                  onClick={() => {
+                    if (customStartDate && customEndDate) {
+                      setShowCustomPicker(false);
+                    }
+                  }}
+                  disabled={!customStartDate || !customEndDate}
+                >
+                  Apply
+                </button>
+                <button
+                  className="cancel-btn"
+                  onClick={() => setShowCustomPicker(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
         </div>
 
         {/* Data Usage Summary Box */}

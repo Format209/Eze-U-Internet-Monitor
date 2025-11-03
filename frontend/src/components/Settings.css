@@ -620,6 +620,12 @@
   font-size: 0.9rem;
 }
 
+.date-input-group label svg {
+  stroke: #06b6d4;
+  color: #06b6d4;
+  flex-shrink: 0;
+}
+
 .date-input-group input[type="date"] {
   padding: 10px 14px;
   background: rgba(15, 15, 15, 0.8);
@@ -629,6 +635,65 @@
   font-size: 0.9rem;
   cursor: pointer;
   transition: all 0.3s ease;
+}
+
+/* Style the calendar icon inside the date input */
+.date-input-group input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  filter: invert(0.8) sepia(1) saturate(5) hue-rotate(180deg);
+  opacity: 0.9;
+}
+
+.date-input-group input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+  filter: invert(0.8) sepia(1) saturate(6) hue-rotate(180deg) brightness(1.1);
+}
+
+/* Style the date picker fields - Webkit browsers */
+.date-input-group input[type="date"]::-webkit-datetime-edit {
+  color: white;
+}
+
+.date-input-group input[type="date"]::-webkit-datetime-edit-fields-wrapper {
+  background: rgba(15, 15, 15, 0.8);
+}
+
+.date-input-group input[type="date"]::-webkit-datetime-edit-text {
+  color: #94a3b8;
+  padding: 0 2px;
+}
+
+.date-input-group input[type="date"]::-webkit-datetime-edit-month-field,
+.date-input-group input[type="date"]::-webkit-datetime-edit-day-field,
+.date-input-group input[type="date"]::-webkit-datetime-edit-year-field {
+  color: #06b6d4;
+  font-weight: 600;
+}
+
+.date-input-group input[type="date"]::-webkit-datetime-edit-month-field:focus,
+.date-input-group input[type="date"]::-webkit-datetime-edit-day-field:focus,
+.date-input-group input[type="date"]::-webkit-datetime-edit-year-field:focus {
+  background: rgba(6, 182, 212, 0.2);
+  color: #06b6d4;
+  outline: none;
+}
+
+/* Style the calendar popup/picker panel */
+.date-input-group input[type="date"]::-webkit-calendar-picker-indicator::-webkit-calendar-picker-indicator {
+  background: rgba(6, 182, 212, 0.15);
+}
+
+/* Firefox calendar popup styling */
+input[type="date"]::-moz-calendar-picker {
+  background: rgba(15, 23, 42, 0.95);
+  color: #06b6d4;
+}
+
+/* Calendar popup container for all browsers */
+@supports selector(::-webkit-datetime-edit-month-field) {
+  .date-input-group input[type="date"] {
+    color-scheme: dark;
+  }
 }
 
 .date-input-group input[type="date"]:hover {

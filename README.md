@@ -29,7 +29,7 @@ The ISC License is a permissive open-source license similar to MIT and BSD, allo
 - **Real-time Speed Tests**: On-demand and automated speed tests using Ookla Speedtest CLI
 - **Live Host Monitoring**: Monitor multiple hosts simultaneously with real-time ping updates via WebSocket
 - **6 Performance Charts**: Download Speed, Upload Speed, Ping Latency, Jitter, Download Latency, Upload Latency
-- **Time Range Filtering**: View data across 1H, 6H, 24H, 7D, or All time periods
+- **Time Range Filtering**: View data across 1h, 6h, 24h, 7d, 30d, or Custom time range
 - **Statistics Display**: Min/Max/Average values for all metrics with color-coded badges
 - **External IP Display**: View your current public IP address
 - **Connection Status**: Real-time WebSocket connection indicator
@@ -213,7 +213,7 @@ The application initializes with these defaults (configurable in Settings tab):
 
 **Reports Tab:**
 - View all speed test history with sorting
-- Time range filters (24H, 7D, 30D, custom dates)
+- Time range filters: 1h, 6h, 24h, 7d, 30d, custom date ranges
 - Export to CSV with all metrics
 - Direct links to Speedtest.net results
 
@@ -223,7 +223,7 @@ The application initializes with these defaults (configurable in Settings tab):
 1. **Run Speed Test**: Click the blue "Run Speed Test" button for immediate testing
 2. **Start Monitoring**: Begin automated scheduled speed tests
 3. **View Charts**: Six performance charts with min/avg/max statistics
-4. **Time Range Filters**: Select 1H, 6H, 24H, 7D, or All to filter chart data
+4. **Time Range Filters**: Select 1h, 6h, 24h, 7d, 30d, or Custom time range to filter chart data
 5. **Live Host Cards**: Click any monitored host to view detailed ping history modal
 6. **External IP**: View your current public IP address in the banner
 
@@ -235,7 +235,7 @@ The application initializes with these defaults (configurable in Settings tab):
 
 ### Live Monitoring Modal
 - Click any host card to open detailed history
-- Time range filters: 15M, 30M, 1H, 6H, 24H, 7D
+- Time range filters: 1h, 6h, 24h, 7d, 30d, custom date ranges
 - Refresh button for latest data
 - Area chart with gradient visualization
 
@@ -318,7 +318,7 @@ See Settings → Notifications tab to configure.
 
 ### Performance Reports
 - **Comprehensive History**: View all speed test results
-- **Time Range Filters**: 24H, 7D, 30D, or custom date ranges
+- **Time Range Filters**: 1h, 6h, 24h, 7d, 30d, or custom date ranges
 - **Sorting**: Sort by any column (timestamp, download, upload, ping, etc.)
 - **Statistics**: Min/Max/Average for all metrics
 - **CSV Export**: Download complete data for external analysis
