@@ -265,6 +265,20 @@ function App() {
           case 'notification':
             handleNotification(message.event, message.data);
             break;
+          case 'console_log':
+            // Forward console logs to any listeners (Settings component)
+            if (window.__consoleLogListener) {
+              window.__consoleLogListener(message);
+            }
+            break;
+          case 'console_buffer':
+            // Forward buffered logs
+            if (window.__consoleLogListener && message.logs && message.logs.length > 0) {
+              message.logs.forEach(log => {
+                window.__consoleLogListener({ type: 'console_log', log: log });
+              });
+            }
+            break;
           default:
             break;
         }
@@ -283,6 +297,8 @@ function App() {
       };
 
       setWs(websocket);
+      // Expose websocket to window for Settings component to access
+      window.__monitoringWS = websocket;
     };
 
     connectWebSocket();

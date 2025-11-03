@@ -80,6 +80,13 @@ function Settings({ settings, updateSettings }) {
   const [sortColumn, setSortColumn] = useState('timestamp');
   const [sortDirection, setSortDirection] = useState('asc');
 
+  // Console tab state
+  const [consoleLogs, setConsoleLogs] = useState([]);
+  const [consoleFilter, setConsoleFilter] = useState('ALL'); // ALL, DEBUG, INFO, WARN, ERROR, SUCCESS
+  const [consoleSearch, setConsoleSearch] = useState('');
+  const [autoScroll, setAutoScroll] = useState(true);
+  const consoleEndRef = React.useRef(null);
+
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
     
@@ -200,6 +207,42 @@ function Settings({ settings, updateSettings }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, reportTimeRange, customStartDate, customEndDate]);
+
+  // Handle console logs from WebSocket
+  useEffect(() => {
+    if (activeTab !== 'console') return;
+
+    const handleConsoleLog = (message) => {
+      if (message.type === 'console_log' && message.log) {
+        setConsoleLogs(prev => {
+          const newLogs = [...prev, message.log];
+          // Keep only last 10000 logs
+          return newLogs.slice(-10000);
+        });
+      }
+    };
+
+    // Set the global listener
+    window.__consoleLogListener = handleConsoleLog;
+
+    return () => {
+      // Clean up listener when tab changes
+      if (window.__consoleLogListener === handleConsoleLog) {
+        delete window.__consoleLogListener;
+      }
+    };
+  }, [activeTab, autoScroll]);
+
+  // Auto-scroll effect - scroll only the console container, not the entire page
+  useEffect(() => {
+    if (autoScroll && consoleEndRef.current) {
+      // Scroll the parent console-output container instead of the entire page
+      const consoleContainer = consoleEndRef.current.closest('.console-output');
+      if (consoleContainer) {
+        consoleContainer.scrollTop = consoleContainer.scrollHeight;
+      }
+    }
+  }, [consoleLogs, autoScroll]);
 
   // Export report as CSV
   const exportReportCSV = () => {
@@ -437,6 +480,13 @@ function Settings({ settings, updateSettings }) {
             >
               <FileText size={20} />
               <span>Report</span>
+            </button>
+            <button
+              className={`sidebar-tab ${activeTab === 'console' ? 'active' : ''}`}
+              onClick={() => setActiveTab('console')}
+            >
+              <Monitor size={20} />
+              <span>Console</span>
             </button>
             <button
               className={`sidebar-tab ${activeTab === 'donate' ? 'active' : ''}`}
@@ -1897,6 +1947,100 @@ function Settings({ settings, updateSettings }) {
                       </tbody>
                     </table>
                   )}
+                </div>
+              </div>
+            )}
+
+            {/* Console Tab */}
+            {activeTab === 'console' && (
+              <div className="settings-section">
+                <h3>Live Backend Console</h3>
+                <p className="section-description">
+                  View real-time backend logs and debug information
+                </p>
+
+                {/* Console Controls */}
+                <div className="console-controls">
+                  <div className="console-filters">
+                    <label htmlFor="logLevel">Log Level:</label>
+                    <select
+                      id="logLevel"
+                      value={consoleFilter}
+                      onChange={(e) => setConsoleFilter(e.target.value)}
+                    >
+                      <option value="ALL">All Levels</option>
+                      <option value="DEBUG">DEBUG</option>
+                      <option value="INFO">INFO</option>
+                      <option value="SUCCESS">SUCCESS</option>
+                      <option value="WARN">WARN</option>
+                      <option value="ERROR">ERROR</option>
+                    </select>
+                  </div>
+
+                  <div className="console-search">
+                    <input
+                      type="text"
+                      placeholder="Search logs..."
+                      value={consoleSearch}
+                      onChange={(e) => setConsoleSearch(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="console-options">
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={autoScroll}
+                        onChange={(e) => setAutoScroll(e.target.checked)}
+                      />
+                      Auto-scroll
+                    </label>
+                    <button
+                      className="btn-clear-console"
+                      onClick={() => setConsoleLogs([])}
+                    >
+                      <Trash2 size={16} />
+                      Clear
+                    </button>
+                  </div>
+                </div>
+
+                {/* Console Output */}
+                <div className="console-output">
+                  {consoleLogs.length === 0 ? (
+                    <div className="console-empty">
+                      <Monitor size={32} />
+                      <p>Waiting for backend logs...</p>
+                    </div>
+                  ) : (
+                    <div className="console-logs">
+                      {consoleLogs.map((log, idx) => {
+                        const matchesFilter = consoleFilter === 'ALL' || log.level === consoleFilter;
+                        const matchesSearch = consoleSearch === '' || 
+                          log.message.toLowerCase().includes(consoleSearch.toLowerCase());
+                        
+                        if (!matchesFilter || !matchesSearch) return null;
+                        
+                        return (
+                          <div key={idx} className={`console-line log-${log.level.toLowerCase()}`}>
+                            <span className="console-timestamp">{log.timestamp}</span>
+                            <span className={`console-level log-level-${log.level.toLowerCase()}`}>
+                              [{log.level}]
+                            </span>
+                            <span className="console-message">{log.message}</span>
+                          </div>
+                        );
+                      })}
+                      <div ref={consoleEndRef} />
+                    </div>
+                  )}
+                </div>
+
+                <div className="console-info">
+                  <p>Total Logs: {consoleLogs.length} | Filtered: {consoleLogs.filter(log => 
+                    (consoleFilter === 'ALL' || log.level === consoleFilter) &&
+                    (consoleSearch === '' || log.message.toLowerCase().includes(consoleSearch.toLowerCase()))
+                  ).length}</p>
                 </div>
               </div>
             )}

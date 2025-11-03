@@ -29,6 +29,11 @@ const colors = {
 // Current log level (default: DEBUG = show everything)
 let currentLogLevel = logLevels.DEBUG;
 
+// WebSocket listener for broadcasting logs
+let wsListener = null;
+const logBuffer = []; // Buffer to store recent logs
+const MAX_LOG_BUFFER = 200;
+
 function formatTimestamp() {
   const now = new Date();
   const year = now.getFullYear();
@@ -56,6 +61,29 @@ function log(level, message, ...args) {
     `${colors.DIM}${timestamp}${colors.RESET} ${color}[${levelStr}]${colors.RESET} - ${message}`,
     ...args
   );
+
+  // Create log entry for WebSocket broadcasting
+  const logEntry = {
+    timestamp: timestamp,
+    level: level,
+    message: message,
+    args: args
+  };
+
+  // Add to buffer
+  logBuffer.push(logEntry);
+  if (logBuffer.length > MAX_LOG_BUFFER) {
+    logBuffer.shift();
+  }
+
+  // Broadcast to WebSocket listeners if available
+  if (wsListener && typeof wsListener === 'function') {
+    try {
+      wsListener(logEntry);
+    } catch (error) {
+      // Silently fail if listener has issues
+    }
+  }
 }
 
 const logger = {
@@ -64,6 +92,14 @@ const logger = {
   warn: (message, ...args) => log(logLevelNames.WARN, message, ...args),
   error: (message, ...args) => log(logLevelNames.ERROR, message, ...args),
   success: (message, ...args) => log(logLevelNames.SUCCESS, message, ...args),
+  
+  // Register WebSocket listener for log broadcasting
+  setWebSocketListener: (listener) => {
+    wsListener = listener;
+  },
+  
+  // Get log buffer
+  getLogBuffer: () => [...logBuffer],
   
   // Set log level
   setLevel: (level) => {
@@ -84,3 +120,4 @@ const logger = {
 };
 
 module.exports = logger;
+

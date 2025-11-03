@@ -414,7 +414,7 @@ async function loadSettings(forceRefresh = false) {
         minUpload: 10,
         maxPing: 100
       },
-      logLevel: 'INFO',  // Default log level
+      logLevel: 'DEBUG',  // Default log level (DEBUG shows all monitoring logs)
       monthlyDataCap: null  // No cap by default (e.g., "5 GB" or "1 TB")
     };
   }
@@ -441,7 +441,7 @@ async function loadSettings(forceRefresh = false) {
       minUpload: row.minUpload,
       maxPing: row.maxPing
     },
-    logLevel: row.logLevel || 'INFO',
+    logLevel: row.logLevel || 'DEBUG',
     monthlyDataCap: row.monthlyDataCap || null
   };
   
@@ -656,6 +656,23 @@ let scheduledJob = null;
 // WebSocket connections
 const clients = new Set();
 
+// Register logger listener for WebSocket broadcasting
+logger.setWebSocketListener((logEntry) => {
+  // Broadcast log to all connected WebSocket clients
+  clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      try {
+        client.send(JSON.stringify({
+          type: 'console_log',
+          log: logEntry
+        }));
+      } catch (error) {
+        logger.error('Error sending console log to client:', error.message);
+      }
+    }
+  });
+});
+
 wss.on('connection', (ws) => {
   logger.debug('Client connected');
   clients.add(ws);
@@ -665,6 +682,15 @@ wss.on('connection', (ws) => {
     type: 'initial',
     data: monitoringData
   }));
+
+  // Send log buffer on connection
+  const logBuffer = logger.getLogBuffer();
+  if (logBuffer.length > 0) {
+    ws.send(JSON.stringify({
+      type: 'console_buffer',
+      logs: logBuffer
+    }));
+  }
 
   ws.on('close', () => {
     logger.debug('Client disconnected');
@@ -1239,6 +1265,14 @@ async function performQuickMonitor() {
   
   const results = await Promise.all(pingPromises);
   
+  // Log ping results for each host at the interval
+  logger.debug(`📊 Live Monitoring Ping Results [Interval: ${monitoringData.settings.monitorInterval}s]:`);
+  results.forEach(result => {
+    const statusIcon = result.ping === -1 ? '❌' : '✓';
+    const pingStatus = result.ping === -1 ? 'TIMEOUT' : `${result.ping}ms`;
+    logger.debug(`  ${statusIcon} ${result.name} (${result.address}): ${pingStatus}`);
+  });
+  
   // Update live monitoring data and check for status changes
   results.forEach(result => {
     const isDown = result.ping === -1;
@@ -1316,8 +1350,6 @@ async function performQuickMonitor() {
     
     monitoringData.liveMonitoring[result.address] = result;
     saveLiveMonitoring(result.address, result);
-    
-    logger.debug(`Updated ${result.name} (${result.address}): ${result.ping}ms`);
   });
   
   // Check for connection lost (all hosts down)

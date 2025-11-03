@@ -1501,3 +1501,230 @@
 .btn-primary:active {
   transform: translateY(0);
 }
+
+/* Console Tab Styles */
+.console-controls {
+  display: flex;
+  gap: 15px;
+  margin-bottom: 20px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.console-filters select,
+.console-search input {
+  padding: 10px 15px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(6, 182, 212, 0.3);
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 0.9rem;
+  transition: all 0.3s ease;
+}
+
+.console-filters select:focus,
+.console-search input:focus {
+  outline: none;
+  border-color: rgba(6, 182, 212, 0.6);
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.console-search input {
+  flex: 1;
+  min-width: 200px;
+}
+
+.console-options {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.9rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.checkbox-label input[type="checkbox"] {
+  cursor: pointer;
+  accent-color: #06b6d4;
+}
+
+.btn-clear-console {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 15px;
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 8px;
+  color: rgba(239, 68, 68, 0.8);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.btn-clear-console:hover {
+  background: rgba(239, 68, 68, 0.3);
+  border-color: rgba(239, 68, 68, 0.6);
+}
+
+.console-output {
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(6, 182, 212, 0.2);
+  border-radius: 12px;
+  height: 500px;
+  overflow-y: auto;
+  padding: 0;
+  margin-bottom: 15px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+.console-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 15px;
+  height: 100%;
+  color: rgba(255, 255, 255, 0.4);
+  text-align: center;
+}
+
+.console-empty svg {
+  opacity: 0.3;
+}
+
+.console-logs {
+  padding: 15px;
+}
+
+.console-line {
+  padding: 8px 12px;
+  margin-bottom: 4px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 6px;
+  border-left: 3px solid rgba(6, 182, 212, 0.3);
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.console-line:hover {
+  background: rgba(0, 0, 0, 0.5);
+  border-left-color: rgba(6, 182, 212, 0.6);
+}
+
+.console-timestamp {
+  color: rgba(6, 182, 212, 0.6);
+  flex-shrink: 0;
+  font-weight: 600;
+  min-width: 120px;
+}
+
+.console-level {
+  flex-shrink: 0;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  min-width: 70px;
+  text-align: center;
+}
+
+.log-level-debug {
+  background: rgba(34, 197, 94, 0.2);
+  color: rgba(34, 197, 94, 0.8);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.log-level-info {
+  background: rgba(59, 130, 246, 0.2);
+  color: rgba(59, 130, 246, 0.8);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.log-level-success {
+  background: rgba(34, 197, 94, 0.2);
+  color: rgba(34, 197, 94, 0.8);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.log-level-warn {
+  background: rgba(234, 179, 8, 0.2);
+  color: rgba(234, 179, 8, 0.8);
+  border: 1px solid rgba(234, 179, 8, 0.3);
+}
+
+.log-level-error {
+  background: rgba(239, 68, 68, 0.2);
+  color: rgba(239, 68, 68, 0.8);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.console-message {
+  flex: 1;
+  word-break: break-all;
+  white-space: normal;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.log-debug .console-line {
+  border-left-color: rgba(34, 197, 94, 0.5);
+}
+
+.log-info .console-line {
+  border-left-color: rgba(59, 130, 246, 0.5);
+}
+
+.log-success .console-line {
+  border-left-color: rgba(34, 197, 94, 0.5);
+}
+
+.log-warn .console-line {
+  border-left-color: rgba(234, 179, 8, 0.5);
+}
+
+.log-error .console-line {
+  border-left-color: rgba(239, 68, 68, 0.5);
+}
+
+.console-info {
+  padding: 10px 15px;
+  background: rgba(6, 182, 212, 0.1);
+  border: 1px solid rgba(6, 182, 212, 0.2);
+  border-radius: 8px;
+  color: rgba(6, 182, 212, 0.7);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+/* Scrollbar styling for console output */
+.console-output::-webkit-scrollbar {
+  width: 8px;
+}
+
+.console-output::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+}
+
+.console-output::-webkit-scrollbar-thumb {
+  background: rgba(6, 182, 212, 0.4);
+  border-radius: 10px;
+  transition: all 0.3s ease;
+}
+
+.console-output::-webkit-scrollbar-thumb:hover {
+  background: rgba(6, 182, 212, 0.6);
+}
+
