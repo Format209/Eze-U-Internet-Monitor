@@ -385,10 +385,10 @@ function Dashboard({ currentSpeed, history, isMonitoring, liveMonitoring, toggle
             <div className="cap-warning-details">
               <h4>
                 {monthlyUsage.capReached 
-                  ? '🚫 Monthly Data Cap Reached!' 
+                  ? '🚫 Monthly SpeedTest Cap Reached!' 
                   : monthlyUsage.percentageUsed >= 80 
-                    ? '⚠️ Approaching Data Cap' 
-                    : '📊 Monthly Data Usage'}
+                    ? '⚠️ Approaching SpeedTest Cap' 
+                    : '📊 Monthly SpeedTest Usage'}
               </h4>
               <p>
                 {formatBytes(monthlyUsage.totalBytes).value} {formatBytes(monthlyUsage.totalBytes).unit} of {monthlyUsage.monthlyDataCap} used this month ({monthlyUsage.percentageUsed.toFixed(1)}%)

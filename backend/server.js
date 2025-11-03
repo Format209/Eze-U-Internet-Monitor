@@ -1023,7 +1023,7 @@ async function performSpeedTest(retryCount = 0) {
   const capReached = await isMonthlyDataCapReached();
   if (capReached) {
     const settings = await loadSettings();
-    logger.warn(`⚠️ Monthly data cap of ${settings.monthlyDataCap} has been reached. Speed test blocked.`);
+    logger.warn(`⚠️  Monthly data cap of ${settings.monthlyDataCap} has been reached. Speed test blocked.`);
     throw new Error(`Monthly data cap of ${settings.monthlyDataCap} reached. Speed tests will resume next month.`);
   }
   
@@ -1053,7 +1053,7 @@ async function performSpeedTest(retryCount = 0) {
     const result = JSON.parse(stdout);
     
     // Log full result structure for debugging
-    console.log('Full Ookla CLI result structure:', JSON.stringify(result, null, 2));
+    logger.debug('Full Ookla CLI result structure:', JSON.stringify(result, null, 2));
     
     // Extract latency values from Ookla CLI JSON
     // Ookla CLI provides: download.latency.iqm, download.latency.low, download.latency.high, download.latency.jitter
@@ -1093,7 +1093,7 @@ async function performSpeedTest(retryCount = 0) {
       uploadBytes: result.upload?.bytes || null
     };
     
-    console.log('✅ Speed test details:', {
+    logger.debug('Speed test details:', {
       ping: testResult.ping,
       jitter: testResult.jitter,
       downloadLatency: testResult.downloadLatency,
@@ -1103,12 +1103,6 @@ async function performSpeedTest(retryCount = 0) {
       note: downloadLatency === 0 && uploadLatency === 0 ? 
         'NOTE: Latency values are 0 - Ookla server may not provide detailed latency metrics' : 
         'Detailed latency data retrieved successfully'
-    });
-    logger.debug('Speed test details:', {
-      ping: testResult.ping,
-      jitter: testResult.jitter,
-      downloadLatency: testResult.downloadLatency,
-      uploadLatency: testResult.uploadLatency
     });
 
     // Save to database
@@ -1179,7 +1173,7 @@ async function performSpeedTest(retryCount = 0) {
     const updatedHistory = await loadHistory(100);
     broadcast({ type: 'history', data: updatedHistory });
     
-    console.log('✅ Speed test completed successfully:', testResult);
+    logger.success('Speed test completed successfully:', testResult);
     return testResult;
     
   } catch (error) {
@@ -1187,12 +1181,12 @@ async function performSpeedTest(retryCount = 0) {
                      error.message.includes('write') || error.message.includes('socket') ? 'Network Connection' :
                      error.message.includes('ENOTFOUND') ? 'DNS Resolution' : 'Unknown';
     
-    console.error(`Speed test error (attempt ${retryCount + 1}/${MAX_RETRIES + 1}) [${errorType}]:`, error.message);
+    logger.error(`Speed test error (attempt ${retryCount + 1}/${MAX_RETRIES + 1}) [${errorType}]:`, error.message);
     
     // Retry if we haven't exceeded max retries
     if (retryCount < MAX_RETRIES) {
       const delay = RETRY_DELAY * (retryCount + 1); // Progressive delay: 10s, 20s, 30s
-      console.log(`Retrying speed test in ${delay / 1000} seconds...`);
+      logger.info(`Retrying speed test in ${delay / 1000} seconds...`);
       await new Promise(resolve => setTimeout(resolve, delay));
       return performSpeedTest(retryCount + 1);
     }
@@ -1209,8 +1203,8 @@ async function performSpeedTest(retryCount = 0) {
       error: `Speed test failed after ${MAX_RETRIES + 1} attempts (${errorType}): ${error.message.substring(0, 100)}`
     };
     
-    console.log('⚠️  All speed test attempts failed. Network issues or Speedtest servers may be unavailable.');
-    console.log('💡 Tip: Check your internet connection and firewall settings.');
+    logger.warn('⚠️  All speed test attempts failed. Network issues or Speedtest servers may be unavailable.');
+    logger.info('💡 Tip: Check your internet connection and firewall settings.');
     
     // Save failed test to database for tracking
     await saveSpeedTest(errorResult);
@@ -1391,26 +1385,26 @@ async function startMonitoring() {
   
   scheduledJob = schedule.scheduleJob(`*/${interval} * * * *`, async () => {
     try {
-      console.log('\n🔄 Running scheduled speed test...');
+      logger.info('🔄 Running scheduled speed test...');
       const result = await performSpeedTest();
       if (result.error) {
-        console.log('⚠️  Scheduled speed test completed with errors. Will retry on next schedule.');
+        logger.warn('⚠️  Scheduled speed test completed with errors. Will retry on next schedule.');
       } else {
-        console.log('✅ Scheduled speed test completed successfully.');
+        logger.success('✅ Scheduled speed test completed successfully.');
       }
     } catch (error) {
-      console.error('❌ Scheduled speed test failed:', error.message);
+      logger.error('❌ Scheduled speed test failed:', error.message);
       // Don't crash the monitoring, just log the error
     }
   });
 
-  console.log(`Scheduled speed tests every ${interval} minutes`);
+  logger.info(`Scheduled speed tests every ${interval} minutes`);
   broadcast({ type: 'status', isMonitoring: true });
 }
 
 // Restart monitoring (used when settings change)
 async function restartMonitoring() {
-  console.log('Restarting monitoring with new settings...');
+  logger.info('Restarting monitoring with new settings...');
   
   if (monitoringInterval) {
     clearInterval(monitoringInterval);
@@ -1607,7 +1601,7 @@ app.get('/api/live-monitoring-history/:address', async (req, res) => {
     
     res.json({ history: rows });
   } catch (error) {
-    console.error('Error getting live monitoring history:', error);
+    logger.error('Error getting live monitoring history:', error);
     res.status(500).json({ error: 'Failed to get monitoring history' });
   }
 });
@@ -1714,7 +1708,7 @@ server.listen(PORT, async () => {
   await initializeData();
   
   // Always start monitoring
-  console.log('Starting monitoring automatically...');
+  logger.info('Starting monitoring automatically...');
   await startMonitoring();
 });
 
@@ -1726,9 +1720,9 @@ async function cleanupOldMonitoringHistory() {
       DELETE FROM live_monitoring_history 
       WHERE datetime(timestamp) < datetime(?)
     `, [sevenDaysAgo]);
-    console.log('Cleaned up old monitoring history');
+    logger.info('Cleaned up old monitoring history');
   } catch (error) {
-    console.error('Error cleaning up monitoring history:', error);
+    logger.error('Error cleaning up monitoring history:', error);
   }
 }
 
