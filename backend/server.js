@@ -1467,7 +1467,7 @@ app.get('/api/status', (req, res) => {
 // Phase 3: History endpoint with caching and pagination
 app.get('/api/history', async (req, res) => {
   try {
-    const limit = Math.min(parseInt(req.query.limit) || 50, 1000);
+    const limit = Math.min(parseInt(req.query.limit) || 50, 1000000);
     const offset = parseInt(req.query.offset) || 0;
     
     // Create cache key based on parameters
@@ -1663,24 +1663,174 @@ app.post('/api/settings', async (req, res) => {
 
 // Clear history
 app.delete('/api/history', async (req, res) => {
-  // Clear speed test history
-  await dbRun('DELETE FROM speed_tests');
-  monitoringData.history = [];
-  
-  // Clear live monitoring data
-  await dbRun('DELETE FROM live_monitoring');
-  await dbRun('DELETE FROM live_monitoring_history');
-  monitoringData.liveMonitoring = {};
-  
-  // Clear notification state
-  notificationState.hostStatus = {};
-  
-  // Phase 3: Invalidate all caches
-  invalidateHistoryCache();
-  invalidateMonitoringCache();
-  
-  broadcast({ type: 'historyCleared' });
-  res.json({ message: 'All history and monitoring data cleared' });
+  try {
+    logger.info('═══════════════════════════════════════════════════════');
+    logger.info('🗑️  CLEAR DATA OPERATION STARTED');
+    logger.info('═══════════════════════════════════════════════════════');
+    
+    // PHASE 1: STOP ALL EVENTS
+    logger.info('📍 PHASE 1: Stopping all background events...');
+    
+    // Stop speed test scheduler
+    if (scheduledJob) {
+      logger.info('  ⏹️  Canceling scheduled speed test job');
+      scheduledJob.cancel();
+      scheduledJob = null;
+    } else {
+      logger.info('  ⏸️  Speed test job not running');
+    }
+    
+    // Stop live monitoring interval
+    if (monitoringInterval) {
+      logger.info('  ⏹️  Clearing live monitoring interval');
+      clearInterval(monitoringInterval);
+      monitoringInterval = null;
+    } else {
+      logger.info('  ⏸️  Live monitoring interval not running');
+    }
+    
+    logger.info('✅ All background events stopped');
+    
+    // PHASE 2: CLEAR DATABASE IN CHUNKS
+    logger.info('📍 PHASE 2: Clearing database tables...');
+    
+    try {
+      // Count records before deletion
+      const speedTestCount = await new Promise((resolve, reject) => {
+        db.get('SELECT COUNT(*) as count FROM speed_tests', (err, row) => {
+          if (err) reject(err);
+          else resolve(row.count);
+        });
+      });
+      logger.info(`  📊 Found ${speedTestCount} speed test records to delete`);
+      
+      if (speedTestCount > 0) {
+        logger.info('  ⏳ Deleting speed_tests table in chunks (10000 per batch)...');
+        const BATCH_SIZE = 10000;
+        
+        for (let i = 0; i < speedTestCount; i += BATCH_SIZE) {
+          logger.debug(`    Deleting batch: ${i} to ${Math.min(i + BATCH_SIZE, speedTestCount)}`);
+          await dbRun('DELETE FROM speed_tests LIMIT ?', [BATCH_SIZE]);
+          // Allow event loop to process
+          await new Promise(resolve => setImmediate(resolve));
+        }
+        logger.info(`  ✅ Deleted ${speedTestCount} speed test records`);
+      }
+    } catch (err) {
+      logger.error(`Error clearing speed_tests: ${err.message}`);
+      throw err;
+    }
+    
+    try {
+      // Count live monitoring records
+      const liveMonCount = await new Promise((resolve, reject) => {
+        db.get('SELECT COUNT(*) as count FROM live_monitoring', (err, row) => {
+          if (err) reject(err);
+          else resolve(row.count);
+        });
+      });
+      logger.info(`  📊 Found ${liveMonCount} live monitoring records to delete`);
+      
+      if (liveMonCount > 0) {
+        logger.info('  ⏳ Deleting live_monitoring table in chunks (10000 per batch)...');
+        const BATCH_SIZE = 10000;
+        
+        for (let i = 0; i < liveMonCount; i += BATCH_SIZE) {
+          logger.debug(`    Deleting batch: ${i} to ${Math.min(i + BATCH_SIZE, liveMonCount)}`);
+          await dbRun('DELETE FROM live_monitoring LIMIT ?', [BATCH_SIZE]);
+          await new Promise(resolve => setImmediate(resolve));
+        }
+        logger.info(`  ✅ Deleted ${liveMonCount} live monitoring records`);
+      }
+    } catch (err) {
+      logger.error(`Error clearing live_monitoring: ${err.message}`);
+      throw err;
+    }
+    
+    try {
+      // Count live monitoring history records
+      const liveMonHistCount = await new Promise((resolve, reject) => {
+        db.get('SELECT COUNT(*) as count FROM live_monitoring_history', (err, row) => {
+          if (err) reject(err);
+          else resolve(row.count);
+        });
+      });
+      logger.info(`  📊 Found ${liveMonHistCount} live monitoring history records to delete`);
+      
+      if (liveMonHistCount > 0) {
+        logger.info('  ⏳ Deleting live_monitoring_history table in chunks (10000 per batch)...');
+        const BATCH_SIZE = 10000;
+        
+        for (let i = 0; i < liveMonHistCount; i += BATCH_SIZE) {
+          logger.debug(`    Deleting batch: ${i} to ${Math.min(i + BATCH_SIZE, liveMonHistCount)}`);
+          await dbRun('DELETE FROM live_monitoring_history LIMIT ?', [BATCH_SIZE]);
+          await new Promise(resolve => setImmediate(resolve));
+        }
+        logger.info(`  ✅ Deleted ${liveMonHistCount} live monitoring history records`);
+      }
+    } catch (err) {
+      logger.error(`Error clearing live_monitoring_history: ${err.message}`);
+      throw err;
+    }
+    
+    logger.info('✅ Database tables cleared');
+    
+    // PHASE 3: CLEAR IN-MEMORY DATA
+    logger.info('📍 PHASE 3: Clearing in-memory data structures...');
+    
+    logger.info('  🧹 Clearing monitoringData.history');
+    monitoringData.history = [];
+    
+    logger.info('  🧹 Clearing monitoringData.liveMonitoring');
+    monitoringData.liveMonitoring = {};
+    
+    logger.info('  🧹 Clearing notificationState.hostStatus');
+    notificationState.hostStatus = {};
+    
+    logger.info('✅ In-memory data cleared');
+    
+    // PHASE 4: INVALIDATE CACHES
+    logger.info('📍 PHASE 4: Invalidating caches...');
+    
+    logger.info('  🔄 Invalidating history cache');
+    invalidateHistoryCache();
+    
+    logger.info('  🔄 Invalidating monitoring cache');
+    invalidateMonitoringCache();
+    
+    logger.info('✅ Caches invalidated');
+    
+    // PHASE 5: BROADCAST UPDATE
+    logger.info('📍 PHASE 5: Notifying clients...');
+    
+    broadcast({ type: 'historyCleared' });
+    logger.info('✅ Clients notified of data clear');
+    
+    logger.info('═══════════════════════════════════════════════════════');
+    logger.info('🎉 CLEAR DATA OPERATION COMPLETED SUCCESSFULLY');
+    logger.info('═══════════════════════════════════════════════════════');
+    
+    res.json({ 
+      message: 'All history and monitoring data cleared successfully',
+      cleared: {
+        speedTests: 'All records cleared',
+        liveMonitoring: 'All records cleared',
+        cache: 'All cache invalidated'
+      }
+    });
+    
+  } catch (error) {
+    logger.error('═══════════════════════════════════════════════════════');
+    logger.error('❌ ERROR DURING CLEAR DATA OPERATION');
+    logger.error(`Error: ${error.message}`);
+    logger.error('Stack:', error.stack);
+    logger.error('═══════════════════════════════════════════════════════');
+    
+    res.status(500).json({ 
+      error: 'Failed to clear data',
+      message: error.message 
+    });
+  }
 });
 
 // Test notification - sends to ALL enabled notification channels
