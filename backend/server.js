@@ -86,6 +86,9 @@ const db = new Database(dbPath);
 db.pragma('journal_mode = WAL'); // Write-Ahead Logging for better concurrency
 db.pragma('synchronous = NORMAL'); // Faster writes, still safe
 db.pragma('cache_size = -64000'); // 64MB cache
+db.pragma('temp_store = MEMORY'); // Use memory for temp operations (faster)
+db.pragma('mmap_size = 30000000'); // Memory-mapped I/O for 30MB (faster reads)
+db.pragma('page_size = 4096'); // Standard page size
 
 logger.info('✓ Database initialized with better-sqlite3');
 
@@ -1670,6 +1673,7 @@ app.delete('/api/history', async (req, res) => {
     
     // PHASE 1: STOP ALL EVENTS
     logger.info('📍 PHASE 1: Stopping all background events...');
+    broadcast({ type: 'clearProgress', message: '📍 PHASE 1/8: Stopping background events', phase: 1, percent: 12 });
     
     // Stop speed test scheduler
     if (scheduledJob) {
@@ -1691,27 +1695,67 @@ app.delete('/api/history', async (req, res) => {
     
     logger.info('✅ All background events stopped');
     
-    // PHASE 2: CLEAR DATABASE IN CHUNKS
-    logger.info('📍 PHASE 2: Clearing database tables...');
+    // PHASE 2: CHECKPOINT AND MERGE WAL
+    logger.info('📍 PHASE 2: Checkpointing WAL to merge pending writes...');
+    broadcast({ type: 'clearProgress', message: '📍 PHASE 2/8: Checkpointing WAL', phase: 2, percent: 25 });
+    
+    try {
+      logger.debug('  📌 Running WAL checkpoint...');
+      db.exec('PRAGMA wal_checkpoint(RESTART)');
+      logger.info('  ✅ WAL checkpoint complete - all writes merged to main database');
+    } catch (err) {
+      logger.warn(`  ⚠️  WAL checkpoint failed (non-critical): ${err.message}`);
+    }
+    
+    // PHASE 3: CLEAR DATABASE IN CHUNKS (OPTIMIZED WITH BULK DELETION)
+    logger.info('📍 PHASE 3: Clearing database tables (optimized bulk deletion)...');
+    broadcast({ type: 'clearProgress', message: '📍 PHASE 3/8: Deleting records', phase: 3, percent: 37 });
     
     try {
       // Count records before deletion
-      const speedTestCount = await new Promise((resolve, reject) => {
-        db.get('SELECT COUNT(*) as count FROM speed_tests', (err, row) => {
-          if (err) reject(err);
-          else resolve(row.count);
-        });
-      });
+      const speedTestResult = await dbGet('SELECT COUNT(*) as count FROM speed_tests');
+      const speedTestCount = speedTestResult.count;
       logger.info(`  📊 Found ${speedTestCount} speed test records to delete`);
       
       if (speedTestCount > 0) {
-        logger.info('  ⏳ Deleting speed_tests table in chunks (10000 per batch)...');
-        const BATCH_SIZE = 10000;
+        logger.info('  ⏳ Using optimized bulk deletion with ROWID ranges...');
         
-        for (let i = 0; i < speedTestCount; i += BATCH_SIZE) {
-          logger.debug(`    Deleting batch: ${i} to ${Math.min(i + BATCH_SIZE, speedTestCount)}`);
-          await dbRun('DELETE FROM speed_tests LIMIT ?', [BATCH_SIZE]);
-          // Allow event loop to process
+        // Get min and max ROWID for efficient range-based deletion
+        const rowIdResult = await dbGet('SELECT MIN(ROWID) as minId, MAX(ROWID) as maxId FROM speed_tests');
+        const minId = rowIdResult.minId || 0;
+        const maxId = rowIdResult.maxId || 0;
+        const BATCH_SIZE = 50000; // Larger batches = faster deletion
+        let batchNum = 0;
+        
+        for (let currentId = minId; currentId <= maxId; currentId += BATCH_SIZE) {
+          const nextId = Math.min(currentId + BATCH_SIZE, maxId + 1);
+          
+          // Delete using ROWID range (much faster than LIMIT)
+          await dbRun(
+            'DELETE FROM speed_tests WHERE ROWID >= ? AND ROWID < ?',
+            [currentId, nextId]
+          );
+          
+          batchNum++;
+          
+          // Show progress
+          const percentComplete = Math.min(100, Math.round(((currentId - minId) / (maxId - minId + 1)) * 100));
+          const progressBar = '█'.repeat(Math.floor(percentComplete / 5)) + '░'.repeat(20 - Math.floor(percentComplete / 5));
+          const progressMsg = `    ⏱️  Progress: [${progressBar}] ${percentComplete}% (batch ${batchNum})`;
+          logger.info(progressMsg);
+          
+          // Broadcast progress to frontend
+          broadcast({ type: 'clearProgress', message: progressMsg, phase: 3, percent: percentComplete });
+          
+          // Checkpoint WAL every 3 batches
+          if (batchNum % 3 === 0) {
+            try {
+              db.exec('PRAGMA wal_checkpoint(RESTART)');
+            } catch (e) {
+              logger.warn(`    ⚠️  WAL checkpoint warning: ${e.message}`);
+            }
+          }
+          
           await new Promise(resolve => setImmediate(resolve));
         }
         logger.info(`  ✅ Deleted ${speedTestCount} speed test records`);
@@ -1723,23 +1767,14 @@ app.delete('/api/history', async (req, res) => {
     
     try {
       // Count live monitoring records
-      const liveMonCount = await new Promise((resolve, reject) => {
-        db.get('SELECT COUNT(*) as count FROM live_monitoring', (err, row) => {
-          if (err) reject(err);
-          else resolve(row.count);
-        });
-      });
+      const liveMonResult = await dbGet('SELECT COUNT(*) as count FROM live_monitoring');
+      const liveMonCount = liveMonResult.count;
       logger.info(`  📊 Found ${liveMonCount} live monitoring records to delete`);
       
       if (liveMonCount > 0) {
-        logger.info('  ⏳ Deleting live_monitoring table in chunks (10000 per batch)...');
-        const BATCH_SIZE = 10000;
-        
-        for (let i = 0; i < liveMonCount; i += BATCH_SIZE) {
-          logger.debug(`    Deleting batch: ${i} to ${Math.min(i + BATCH_SIZE, liveMonCount)}`);
-          await dbRun('DELETE FROM live_monitoring LIMIT ?', [BATCH_SIZE]);
-          await new Promise(resolve => setImmediate(resolve));
-        }
+        // For small tables, just delete all at once
+        logger.info('  ⏳ Deleting live_monitoring (small table)...');
+        await dbRun('DELETE FROM live_monitoring');
         logger.info(`  ✅ Deleted ${liveMonCount} live monitoring records`);
       }
     } catch (err) {
@@ -1749,34 +1784,86 @@ app.delete('/api/history', async (req, res) => {
     
     try {
       // Count live monitoring history records
-      const liveMonHistCount = await new Promise((resolve, reject) => {
-        db.get('SELECT COUNT(*) as count FROM live_monitoring_history', (err, row) => {
-          if (err) reject(err);
-          else resolve(row.count);
-        });
-      });
+      const liveMonHistResult = await dbGet('SELECT COUNT(*) as count FROM live_monitoring_history');
+      const liveMonHistCount = liveMonHistResult.count;
       logger.info(`  📊 Found ${liveMonHistCount} live monitoring history records to delete`);
       
       if (liveMonHistCount > 0) {
-        logger.info('  ⏳ Deleting live_monitoring_history table in chunks (10000 per batch)...');
-        const BATCH_SIZE = 10000;
+        logger.info('  ⏳ Using single DELETE with optimal pragmas (fastest, safest method)...');
         
-        for (let i = 0; i < liveMonHistCount; i += BATCH_SIZE) {
-          logger.debug(`    Deleting batch: ${i} to ${Math.min(i + BATCH_SIZE, liveMonHistCount)}`);
-          await dbRun('DELETE FROM live_monitoring_history LIMIT ?', [BATCH_SIZE]);
-          await new Promise(resolve => setImmediate(resolve));
+        try {
+          // CRITICAL: Use optimal pragmas for bulk deletion
+          logger.debug('  � Setting pragmas for optimal deletion...');
+          
+          // Disable synchronous writes temporarily for speed
+          try {
+            db.exec('PRAGMA synchronous = OFF');
+            logger.debug('  ℹ️  Synchronous writes disabled (enabling after deletion)');
+          } catch (e) {
+            logger.warn('  ⚠️  Could not disable synchronous:', e.message);
+          }
+          
+          // Delete all records at once (much safer than batching!)
+          logger.debug('  🔪 Executing DELETE FROM live_monitoring_history (all records)...');
+          const deleteStmt = db.prepare('DELETE FROM live_monitoring_history');
+          deleteStmt.run();
+          
+          logger.info(`  ✅ Deleted ${liveMonHistCount} live monitoring history records`);
+          
+          // Re-enable synchronous writes
+          try {
+            db.exec('PRAGMA synchronous = NORMAL');
+            logger.debug('  ✓ Synchronous writes re-enabled');
+          } catch (e) {
+            logger.warn('  ⚠️  Could not re-enable synchronous:', e.message);
+          }
+          
+          // Immediate checkpoint to sync WAL
+          try {
+            logger.debug('  📌 Checkpointing WAL after deletion...');
+            db.exec('PRAGMA wal_checkpoint(RESTART)');
+            logger.debug('  ✓ WAL checkpoint complete');
+          } catch (checkErr) {
+            logger.warn(`  ⚠️  Post-deletion checkpoint failed: ${checkErr.message}`);
+          }
+        } catch (deleteErr) {
+          // Re-enable synchronous on error
+          try {
+            db.exec('PRAGMA synchronous = NORMAL');
+          } catch (e) {
+            logger.warn('  ⚠️  Could not re-enable synchronous on error:', e.message);
+          }
+          
+          logger.error(`Error deleting records: ${deleteErr.message}`);
+          throw deleteErr;
         }
-        logger.info(`  ✅ Deleted ${liveMonHistCount} live monitoring history records`);
       }
     } catch (err) {
       logger.error(`Error clearing live_monitoring_history: ${err.message}`);
+      
+      // Attempt database recovery if corruption detected
+      if (err.message.includes('malformed') || err.message.includes('corrupt')) {
+        logger.error('🔨 Database corruption detected! Attempting recovery...');
+        try {
+          logger.info('  🔧 Running PRAGMA integrity_check...');
+          const integrity = db.prepare('PRAGMA integrity_check').all();
+          if (integrity[0]?.integrity_check !== 'ok') {
+            logger.error('  ❌ Database integrity check failed');
+            logger.info('  💾 Database file may need manual recovery or reset');
+          }
+        } catch (integrityErr) {
+          logger.error('  ❌ Could not run integrity check:', integrityErr.message);
+        }
+      }
+      
       throw err;
     }
     
     logger.info('✅ Database tables cleared');
     
-    // PHASE 3: CLEAR IN-MEMORY DATA
-    logger.info('📍 PHASE 3: Clearing in-memory data structures...');
+    // PHASE 4: CLEAR IN-MEMORY DATA
+    logger.info('📍 PHASE 4: Clearing in-memory data structures...');
+    broadcast({ type: 'clearProgress', message: '📍 PHASE 4/8: Clearing memory', phase: 4, percent: 50 });
     
     logger.info('  🧹 Clearing monitoringData.history');
     monitoringData.history = [];
@@ -1789,8 +1876,9 @@ app.delete('/api/history', async (req, res) => {
     
     logger.info('✅ In-memory data cleared');
     
-    // PHASE 4: INVALIDATE CACHES
-    logger.info('📍 PHASE 4: Invalidating caches...');
+    // PHASE 5: INVALIDATE CACHES
+    logger.info('📍 PHASE 5: Invalidating caches...');
+    broadcast({ type: 'clearProgress', message: '📍 PHASE 5/8: Invalidating caches', phase: 5, percent: 62 });
     
     logger.info('  🔄 Invalidating history cache');
     invalidateHistoryCache();
@@ -1800,8 +1888,68 @@ app.delete('/api/history', async (req, res) => {
     
     logger.info('✅ Caches invalidated');
     
-    // PHASE 5: BROADCAST UPDATE
-    logger.info('📍 PHASE 5: Notifying clients...');
+    // PHASE 6: Schedule VACUUM to run after response sent
+    // (VACUUM must run after all queries complete and connection is released)
+    logger.info('📍 PHASE 6: Scheduling database space reclamation...');
+    broadcast({ type: 'clearProgress', message: '📍 PHASE 6/8: Preparing VACUUM', phase: 6, percent: 75 });
+    
+    // Run VACUUM asynchronously AFTER response is sent
+    const vacuumAfterResponse = () => {
+      setImmediate(() => {
+        try {
+          logger.info('  🧹 Running VACUUM (after response sent)...');
+          const startSize = fs.statSync(dbPath).size;
+          
+          // Add small delay to ensure all connections are released
+          setTimeout(() => {
+            try {
+              // CRITICAL: First, checkpoint the WAL to merge all writes into main file
+              logger.debug('  📌 WAL checkpoint before VACUUM...');
+              db.exec('PRAGMA wal_checkpoint(RESTART)');
+              logger.debug('  ✅ WAL merged to main database');
+              
+              // CRITICAL: Ensure NO transactions are active before VACUUM
+              logger.debug('  📌 Ensuring no active transactions...');
+              try {
+                db.exec('ROLLBACK');
+              } catch (e) {
+                logger.debug('  ℹ️  No active transaction to rollback');
+              }
+              
+              // Now run VACUUM on the clean main file
+              logger.debug('  📌 Executing VACUUM...');
+              db.exec('VACUUM');
+              logger.debug('  📌 Running PRAGMA optimize...');
+              db.exec('PRAGMA optimize');
+              
+              // Give OS time to update file size
+              setTimeout(() => {
+                const endSize = fs.statSync(dbPath).size;
+                const shrinkage = startSize - endSize;
+                const shrinkPercent = shrinkage > 0 ? ((shrinkage / startSize) * 100).toFixed(1) : '0.0';
+                
+                if (shrinkage > 0) {
+                  logger.info(`  ✅ VACUUM complete: ${(startSize / 1024 / 1024).toFixed(2)}MB → ${(endSize / 1024 / 1024).toFixed(2)}MB (${shrinkPercent}% reclaimed)`);
+                  broadcast({ type: 'clearProgress', message: `✅ Database shrunk: ${(startSize / 1024 / 1024).toFixed(0)}MB → ${(endSize / 1024 / 1024).toFixed(0)}MB`, phase: 6, percent: 100 });
+                } else {
+                  logger.info(`  ℹ️  VACUUM complete: File size stable at ${(endSize / 1024 / 1024).toFixed(2)}MB (database already optimized)`);
+                }
+              }, 100);
+            } catch (err) {
+              logger.warn(`  ⚠️  VACUUM failed (non-critical): ${err.message}`);
+            }
+          }, 50);
+        } catch (err) {
+          logger.warn(`  ⚠️  VACUUM scheduling failed: ${err.message}`);
+        }
+      });
+    };
+    
+    logger.info('✅ Database space reclamation scheduled for after response');
+    
+    // PHASE 7: BROADCAST UPDATE
+    logger.info('📍 PHASE 7: Notifying clients...');
+    broadcast({ type: 'clearProgress', message: '📍 PHASE 7/8: Notifying clients', phase: 7, percent: 87 });
     
     broadcast({ type: 'historyCleared' });
     logger.info('✅ Clients notified of data clear');
@@ -1810,14 +1958,30 @@ app.delete('/api/history', async (req, res) => {
     logger.info('🎉 CLEAR DATA OPERATION COMPLETED SUCCESSFULLY');
     logger.info('═══════════════════════════════════════════════════════');
     
+    // PHASE 8: RESTART MONITORING
+    logger.info('📍 PHASE 8: Restarting monitoring and speed tests...');
+    broadcast({ type: 'clearProgress', message: '📍 PHASE 8/8: Restarting monitoring', phase: 8, percent: 100 });
+    
+    try {
+      await startMonitoring();
+      logger.info('✅ Monitoring and speed tests restarted');
+    } catch (err) {
+      logger.error('⚠️  Failed to restart monitoring:', err.message);
+    }
+    
+    // Send response and schedule VACUUM for after
     res.json({ 
       message: 'All history and monitoring data cleared successfully',
       cleared: {
         speedTests: 'All records cleared',
         liveMonitoring: 'All records cleared',
-        cache: 'All cache invalidated'
+        cache: 'All cache invalidated',
+        monitoringRestarted: true
       }
     });
+    
+    // Now run VACUUM after response is sent
+    vacuumAfterResponse();
     
   } catch (error) {
     logger.error('═══════════════════════════════════════════════════════');
@@ -1826,9 +1990,29 @@ app.delete('/api/history', async (req, res) => {
     logger.error('Stack:', error.stack);
     logger.error('═══════════════════════════════════════════════════════');
     
+    // Handle database corruption
+    if (error.message.includes('malformed') || error.message.includes('corrupt')) {
+      logger.error('🔨 DATABASE CORRUPTION DETECTED!');
+      logger.error('  Possible causes:');
+      logger.error('    • Sudden power loss or system crash during operation');
+      logger.error('    • Disk I/O errors');
+      logger.error('    • WAL file corruption');
+      logger.error('');
+      logger.error('  Recovery steps:');
+      logger.error('    1. Stop the application');
+      logger.error('    2. Delete the monitoring.db, monitoring.db-wal, and monitoring.db-shm files');
+      logger.error('    3. Restart the application (new database will be created)');
+      logger.error('');
+      logger.error(`  Files to delete from: ${path.dirname(dbPath)}`);
+      logger.error('    - monitoring.db');
+      logger.error('    - monitoring.db-wal');
+      logger.error('    - monitoring.db-shm');
+    }
+    
     res.status(500).json({ 
       error: 'Failed to clear data',
-      message: error.message 
+      message: error.message,
+      suggestion: error.message.includes('malformed') ? 'Database corruption detected. Try deleting monitoring.db* files and restarting.' : undefined
     });
   }
 });

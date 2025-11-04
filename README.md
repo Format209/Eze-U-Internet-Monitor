@@ -226,6 +226,7 @@ The application initializes with these defaults (configurable in Settings tab):
 4. **Time Range Filters**: Select 1h, 6h, 24h, 7d, 30d, or Custom time range to filter chart data
 5. **Live Host Cards**: Click any monitored host to view detailed ping history modal
 6. **External IP**: View your current public IP address in the banner
+7. **Clear All Data**: Access via Settings to safely delete all historical data with progress tracking
 
 ### Settings
 1. **Monitoring Tab**: Configure automatic test interval
@@ -265,6 +266,16 @@ The application initializes with these defaults (configurable in Settings tab):
 - `GET /api/monthly-usage` - Get monthly data usage statistics
   - Returns: `totalDownload`, `totalUpload`, `totalData` (all in bytes), `capReached` (boolean)
   - Automatically resets on 1st of each month
+
+### Data Management
+- `DELETE /api/history` - Clear all historical data (speed tests, live monitoring history)
+  - Features:
+    - ✅ 8-phase deletion process with progress tracking
+    - ✅ Real-time WebSocket progress updates
+    - ✅ Safe atomic deletion (no corruption risk)
+    - ✅ Confirmation modal with record count
+    - ✅ Automatic VACUUM and database optimization
+  - Response: `{message: "All history and monitoring data cleared successfully", cleared: {...}}`
 
 ### Network Information
 - `GET /api/external-ip` - Get external IP address

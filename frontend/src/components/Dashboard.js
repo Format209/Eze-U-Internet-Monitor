@@ -30,6 +30,14 @@ function Dashboard({ currentSpeed, history, isMonitoring, liveMonitoring, toggle
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
   const [showCustomPicker, setShowCustomPicker] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
+  const [clearProgress, setClearProgress] = useState({
+    phase: 0,
+    message: '',
+    logs: []
+  });
+  const [totalRecordsCount, setTotalRecordsCount] = useState(0);
 
   const handleRunTest = async () => {
     setIsTestRunning(true);
@@ -40,6 +48,85 @@ function Dashboard({ currentSpeed, history, isMonitoring, liveMonitoring, toggle
       setTimeout(() => setErrorMessage(null), 5000);
     }
     setTimeout(() => setIsTestRunning(false), 5000);
+  };
+
+  const handleClearDataConfirmed = async () => {
+    setIsClearing(true);
+    setClearProgress({
+      phase: 0,
+      message: 'Starting clear data operation...',
+      logs: []
+    });
+
+    try {
+      // Listen to WebSocket logs during clear operation
+      const ws = new WebSocket(`${BACKEND_URL.replace('http', 'ws')}/`);
+      const logBuffer = [];
+      let currentPhase = 0;
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        
+        if (data.type === 'clearProgress') {
+          // Direct progress update from backend
+          logBuffer.push(data.message);
+          currentPhase = data.phase || currentPhase;
+          setClearProgress(prev => ({
+            phase: data.phase || prev.phase,
+            message: data.message,
+            percent: data.percent || 0,
+            logs: logBuffer.slice(-20) // Keep last 20 logs
+          }));
+        } else if (data.type === 'log') {
+          logBuffer.push(data.message);
+          
+          // Extract phase number from log messages
+          // Looks for patterns like "📍 PHASE 1:" or "PHASE 1"
+          const phaseMatch = data.message.match(/PHASE\s+(\d+)/);
+          if (phaseMatch) {
+            currentPhase = parseInt(phaseMatch[1]);
+          }
+          
+          // Extract percentage from progress messages
+          let percentComplete = 0;
+          const percentMatch = data.message.match(/(\d+)%/);
+          if (percentMatch) {
+            percentComplete = parseInt(percentMatch[1]);
+          }
+          
+          // Update progress state
+          setClearProgress(prev => ({
+            phase: currentPhase || prev.phase,
+            message: data.message,
+            percent: percentComplete || prev.percent,
+            logs: logBuffer.slice(-20) // Keep last 20 logs
+          }));
+        } else if (data.type === 'historyCleared') {
+          logBuffer.push('✅ All data cleared and cleared event received');
+        }
+      };
+
+      // Make the API call to clear data
+      await fetch(`${BACKEND_URL}/api/history`, {
+        method: 'DELETE'
+      });
+
+      // Wait a moment for logs to complete
+      setTimeout(() => {
+        ws.close();
+        setShowClearConfirm(false);
+        setIsClearing(false);
+      }, 3000);
+    } catch (error) {
+      setClearProgress(prev => ({
+        ...prev,
+        message: `❌ Error: ${error.message}`,
+        logs: [...prev.logs, `Error: ${error.message}`]
+      }));
+      setTimeout(() => {
+        setIsClearing(false);
+      }, 3000);
+    }
   };
 
   // Fetch external IP on mount
@@ -154,6 +241,25 @@ function Dashboard({ currentSpeed, history, isMonitoring, liveMonitoring, toggle
     const interval = setInterval(fetchMonthlyUsage, 30000);
     return () => clearInterval(interval);
   }, [history]); // Refresh when history updates
+
+  // Fetch total records count when clear confirmation modal opens
+  useEffect(() => {
+    if (showClearConfirm) {
+      const fetchTotalCounts = async () => {
+        try {
+          // Fetch total speed tests count
+          const historyResponse = await fetch(`${BACKEND_URL}/api/history?limit=1&paginated=true`);
+          const historyData = await historyResponse.json();
+          setTotalRecordsCount(historyData.pagination?.total || 0);
+        } catch (error) {
+          console.error('Error fetching total records count:', error);
+          setTotalRecordsCount(0);
+        }
+      };
+      
+      fetchTotalCounts();
+    }
+  }, [showClearConfirm]);
 
   // Check for errors in last history entry
   useEffect(() => {
@@ -490,10 +596,11 @@ function Dashboard({ currentSpeed, history, isMonitoring, liveMonitoring, toggle
         </button>
         <button
           className="control-btn danger"
-          onClick={clearHistory}
+          onClick={() => setShowClearConfirm(true)}
+          disabled={isClearing}
         >
           <Trash2 size={20} />
-          Clear All Data
+          {isClearing ? 'Clearing...' : 'Clear All Data'}
         </button>
       </div>
 
@@ -1252,6 +1359,73 @@ function Dashboard({ currentSpeed, history, isMonitoring, liveMonitoring, toggle
                 })()}
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Clear Data Confirmation Modal */}
+      {showClearConfirm && (
+        <div className="modal-overlay">
+          <div className="modal-content clear-confirm-modal">
+            {!isClearing ? (
+              <>
+                <div className="modal-header">
+                  <h2>⚠️ Confirm Clear All Data</h2>
+                  <button className="modal-close" onClick={() => setShowClearConfirm(false)}>
+                    <X size={24} />
+                  </button>
+                </div>
+                <div className="modal-body">
+                  <p className="warning-text">This action will permanently delete:</p>
+                  <ul className="delete-list">
+                    <li>📊 All speed test records ({totalRecordsCount.toLocaleString()} records)</li>
+                    <li>🔍 All live monitoring history</li>
+                    <li>📈 All cached statistics</li>
+                  </ul>
+                  <p className="warning-subtext">This operation cannot be undone. Are you sure?</p>
+                </div>
+                <div className="modal-footer">
+                  <button 
+                    className="btn-cancel" 
+                    onClick={() => setShowClearConfirm(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    className="btn-confirm-danger" 
+                    onClick={handleClearDataConfirmed}
+                  >
+                    Yes, Clear All Data
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="modal-header">
+                  <h2>🧹 Clearing Data...</h2>
+                </div>
+                <div className="modal-body progress-body">
+                  <div className="progress-phase">
+                    <h3>Phase {clearProgress.phase}/8</h3>
+                    <p className="phase-message">{clearProgress.message}</p>
+                    {clearProgress.percent !== undefined && (
+                      <div className="progress-bar-container">
+                        <div className="progress-bar" style={{ width: `${clearProgress.percent}%` }}></div>
+                        <span className="progress-percent">{clearProgress.percent}%</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="progress-logs">
+                    {clearProgress.logs.map((log, idx) => (
+                      <div key={idx} className="log-line">
+                        <code>{log}</code>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="spinner"></div>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
