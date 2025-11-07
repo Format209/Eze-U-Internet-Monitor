@@ -313,6 +313,88 @@
   transform: none;
 }
 
+.btn-cleanup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  background: linear-gradient(135deg, #f59e0b 0%, #f97316 100%);
+  color: white;
+  border: 1px solid #f59e0b;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  width: 100%;
+  justify-content: center;
+}
+
+.btn-cleanup:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 30px rgba(245, 158, 11, 0.5);
+  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+}
+
+.btn-cleanup:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-cleanup svg {
+  width: 18px;
+  height: 18px;
+}
+
+.btn-cleanup svg.spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.cleanup-status {
+  margin-top: 12px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  animation: slideIn 0.3s ease;
+}
+
+.cleanup-status.success {
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: #22c55e;
+}
+
+.cleanup-status.error {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .monitoring-hosts-list {
   display: flex;
   flex-direction: column;
@@ -1791,5 +1873,76 @@ input[type="date"]::-moz-calendar-picker {
 
 .console-output::-webkit-scrollbar-thumb:hover {
   background: rgba(6, 182, 212, 0.6);
+}
+
+/* Data Retention Tab Styles */
+.input-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.input-group input[type="number"],
+.input-group input[type="time"] {
+  flex: 1;
+  padding: 10px 12px;
+  background: rgba(5, 5, 5, 0.5);
+  border: 1px solid rgba(6, 182, 212, 0.3);
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 0.95rem;
+  transition: all 0.3s ease;
+}
+
+.input-group input[type="number"]:focus,
+.input-group input[type="time"]:focus {
+  outline: none;
+  border-color: rgba(6, 182, 212, 0.7);
+  background: rgba(6, 182, 212, 0.05);
+  box-shadow: 0 0 20px rgba(6, 182, 212, 0.2);
+}
+
+.input-suffix {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.settings-info-box {
+  background: rgba(6, 182, 212, 0.08);
+  border: 1px solid rgba(6, 182, 212, 0.3);
+  border-radius: 12px;
+  padding: 16px;
+  margin-top: 20px;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.settings-info-box strong {
+  display: block;
+  color: rgba(6, 182, 212, 0.9);
+  margin-bottom: 10px;
+  font-size: 0.95rem;
+}
+
+.settings-info-box ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.settings-info-box ul li {
+  padding: 6px 0;
+  padding-left: 20px;
+  position: relative;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.9rem;
+}
+
+.settings-info-box ul li:before {
+  content: "✓";
+  position: absolute;
+  left: 0;
+  color: rgba(6, 182, 212, 0.8);
+  font-weight: bold;
 }
 

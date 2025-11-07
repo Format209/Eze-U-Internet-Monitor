@@ -213,7 +213,7 @@ function invalidateMonitoringCache() {
     CREATE TABLE IF NOT EXISTS settings (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       testInterval INTEGER NOT NULL,
-      monitorInterval INTEGER DEFAULT 5,
+      monitorInterval INTEGER DEFAULT 60,
       pingHost TEXT NOT NULL,
       monitoringHosts TEXT NOT NULL,
       autoStart INTEGER NOT NULL,
@@ -236,7 +236,7 @@ function invalidateMonitoringCache() {
 
   // Add monitorInterval column if it doesn't exist (migration)
   try {
-    db.exec(`ALTER TABLE settings ADD COLUMN monitorInterval INTEGER DEFAULT 5`);
+    db.exec(`ALTER TABLE settings ADD COLUMN monitorInterval INTEGER DEFAULT 60`);
   } catch (err) {
     if (!err.message.includes('duplicate column')) {
       logger.error('Error adding monitorInterval column:', err.message);
@@ -249,6 +249,15 @@ function invalidateMonitoringCache() {
   } catch (err) {
     if (!err.message.includes('duplicate column')) {
       logger.error('Error adding logLevel column:', err.message);
+    }
+  }
+
+  // Add liveMonitoringInterval column if it doesn't exist (migration)
+  try {
+    db.exec(`ALTER TABLE settings ADD COLUMN liveMonitoringInterval INTEGER DEFAULT 10`);
+  } catch (err) {
+    if (!err.message.includes('duplicate column')) {
+      logger.error('Error adding liveMonitoringInterval column:', err.message);
     }
   }
 
@@ -275,6 +284,15 @@ function invalidateMonitoringCache() {
   } catch (err) {
     if (!err.message.includes('duplicate column')) {
       logger.error('Error adding monthlyDataCap column:', err.message);
+    }
+  }
+
+  // Add dataRetention column to settings if it doesn't exist (migration)
+  try {
+    db.exec(`ALTER TABLE settings ADD COLUMN dataRetention TEXT DEFAULT NULL`);
+  } catch (err) {
+    if (!err.message.includes('duplicate column')) {
+      logger.error('Error adding dataRetention column:', err.message);
     }
   }
 
@@ -402,7 +420,8 @@ async function loadSettings(forceRefresh = false) {
   if (!row) {
     return {
       testInterval: 30,
-      monitorInterval: 5,
+      monitorInterval: 60,
+      liveMonitoringInterval: 10,
       pingHost: '8.8.8.8',
       monitoringHosts: [
         { address: '8.8.8.8', name: 'Google DNS', enabled: true },
@@ -413,12 +432,18 @@ async function loadSettings(forceRefresh = false) {
       notifications: true,
       notificationSettings: defaultNotificationSettings,
       thresholds: {
-        minDownload: 50,
+        minDownload: 10,
         minUpload: 10,
-        maxPing: 100
+        maxPing: 500
       },
-      logLevel: 'DEBUG',  // Default log level (DEBUG shows all monitoring logs)
-      monthlyDataCap: null  // No cap by default (e.g., "5 GB" or "1 TB")
+      logLevel: 'INFO',  // Default log level (INFO for standard logging)
+      monthlyDataCap: null,  // No cap by default (e.g., "5 GB" or "1 TB")
+      dataRetention: {
+        speedTestRetentionDays: 90,
+        liveMonitoringRetentionDays: 7,
+        autoCleanupEnabled: true,
+        autoCleanupTime: '00:00'
+      }
     };
   }
   
@@ -431,9 +456,24 @@ async function loadSettings(forceRefresh = false) {
     }
   }
   
+  let dataRetention = {
+    speedTestRetentionDays: 90,
+    liveMonitoringRetentionDays: 30,
+    autoCleanupEnabled: true,
+    autoCleanupTime: '00:00'
+  };
+  if (row.dataRetention) {
+    try {
+      dataRetention = JSON.parse(row.dataRetention);
+    } catch (e) {
+      logger.error('Error parsing dataRetention:', e);
+    }
+  }
+  
   const loadedSettings = {
     testInterval: row.testInterval,
-    monitorInterval: row.monitorInterval || 5,
+    monitorInterval: row.monitorInterval || 60,
+    liveMonitoringInterval: row.liveMonitoringInterval || 10,
     pingHost: row.pingHost,
     monitoringHosts: JSON.parse(row.monitoringHosts),
     autoStart: row.autoStart === 1,
@@ -444,8 +484,9 @@ async function loadSettings(forceRefresh = false) {
       minUpload: row.minUpload,
       maxPing: row.maxPing
     },
-    logLevel: row.logLevel || 'DEBUG',
-    monthlyDataCap: row.monthlyDataCap || null
+    logLevel: row.logLevel || 'INFO',
+    monthlyDataCap: row.monthlyDataCap || null,
+    dataRetention: dataRetention
   };
   
   // Update cache
@@ -464,6 +505,7 @@ async function saveSettings(settings) {
     UPDATE settings 
     SET testInterval = ?, 
         monitorInterval = ?,
+        liveMonitoringInterval = ?,
         pingHost = ?, 
         monitoringHosts = ?,
         autoStart = ?,
@@ -473,11 +515,13 @@ async function saveSettings(settings) {
         minUpload = ?,
         maxPing = ?,
         logLevel = ?,
-        monthlyDataCap = ?
+        monthlyDataCap = ?,
+        dataRetention = ?
     WHERE id = 1
   `, [
     settings.testInterval,
-    settings.monitorInterval || 5,
+    settings.monitorInterval || 60,
+    settings.liveMonitoringInterval || 10,
     settings.pingHost,
     JSON.stringify(settings.monitoringHosts),
     settings.autoStart ? 1 : 0,
@@ -487,7 +531,13 @@ async function saveSettings(settings) {
     settings.thresholds.minUpload,
     settings.thresholds.maxPing,
     settings.logLevel || 'INFO',
-    settings.monthlyDataCap || null
+    settings.monthlyDataCap || null,
+    JSON.stringify(settings.dataRetention || {
+      speedTestRetentionDays: 90,
+      liveMonitoringRetentionDays: 30,
+      autoCleanupEnabled: true,
+      autoCleanupTime: '00:00'
+    })
   ]);
 }
 
@@ -1387,6 +1437,358 @@ async function performQuickMonitor() {
   return results;
 }
 
+// Automatic data cleanup function - follows same 8-phase pattern as Clear Data but with time-based filtering
+async function cleanupOldData() {
+  try {
+    logger.info('═══════════════════════════════════════════════════════');
+    logger.info('🧹 CLEANUP OLD DATA OPERATION STARTED');
+    logger.info('═══════════════════════════════════════════════════════');
+    
+    // Load retention settings
+    logger.debug('  📋 Loading retention settings...');
+    const settings = await loadSettings();
+    const retention = settings.dataRetention || {};
+    
+    if (!retention.autoCleanupEnabled) {
+      logger.debug('  ℹ️  Cleanup is disabled - exiting');
+      return;
+    }
+    
+    const speedTestRetentionDays = retention.speedTestRetentionDays || 90;
+    const liveMonitoringRetentionDays = retention.liveMonitoringRetentionDays || 30;
+    
+    // Calculate cutoff dates
+    const now = new Date();
+    const speedTestCutoff = new Date(now.getTime() - (speedTestRetentionDays * 24 * 60 * 60 * 1000));
+    const liveMonitoringCutoff = new Date(now.getTime() - (liveMonitoringRetentionDays * 24 * 60 * 60 * 1000));
+    
+    logger.info(`📊 Retention: speedTest=${speedTestRetentionDays}d, liveMonitoring=${liveMonitoringRetentionDays}d`);
+    logger.debug(`  Speed test cutoff: ${speedTestCutoff.toISOString()}`);
+    logger.debug(`  Live monitoring cutoff: ${liveMonitoringCutoff.toISOString()}`);
+    
+    // PHASE 1: CHECKPOINT WAL
+    logger.info('📍 PHASE 1: Checkpointing WAL to merge pending writes...');
+    
+    try {
+      logger.debug('  📌 Running WAL checkpoint...');
+      db.exec('PRAGMA wal_checkpoint(RESTART)');
+      logger.info('  ✅ WAL checkpoint complete');
+    } catch (err) {
+      logger.warn(`  ⚠️  WAL checkpoint warning: ${err.message}`);
+    }
+    
+    // Use separate transactions for each table to prevent index corruption cascade
+    // PHASE 2: Delete old speed test records
+    logger.info('📍 PHASE 2: Deleting old speed test records...');
+    try {
+      const speedTestCount = await dbGet('SELECT COUNT(*) as count FROM speed_tests WHERE datetime(timestamp) < datetime(?)', [speedTestCutoff.toISOString()]);
+      
+      if (speedTestCount.count > 0) {
+        logger.debug(`  📌 Found ${speedTestCount.count} records to delete`);
+        
+        try {
+          db.exec('PRAGMA synchronous = OFF');
+          logger.debug('  ✓ Synchronous writes disabled (for speed)');
+        } catch (e) {
+          logger.warn('  ⚠️  Could not disable synchronous:', e.message);
+        }
+        
+        logger.debug('  🔪 Executing DELETE FROM speed_tests...');
+        const deleteStmt = db.prepare('DELETE FROM speed_tests WHERE datetime(timestamp) < datetime(?)');
+        deleteStmt.run(speedTestCutoff.toISOString());
+        
+        logger.info(`  ✅ Deleted ${speedTestCount.count} old speed test records`);
+        
+        try {
+          db.exec('PRAGMA synchronous = NORMAL');
+          logger.debug('  ✓ Synchronous writes re-enabled');
+        } catch (e) {
+          logger.warn('  ⚠️  Could not re-enable synchronous:', e.message);
+        }
+        
+        try {
+          logger.debug('  📌 Checkpointing WAL after deletion...');
+          db.exec('PRAGMA wal_checkpoint(RESTART)');
+          logger.debug('  ✓ WAL checkpoint complete');
+        } catch (checkErr) {
+          logger.warn(`  ⚠️  Post-deletion checkpoint failed: ${checkErr.message}`);
+        }
+        
+        invalidateHistoryCache();
+      } else {
+        logger.info('ℹ️  No old speed test records to delete');
+      }
+    } catch (speedTestError) {
+      try {
+        db.exec('PRAGMA synchronous = NORMAL');
+      } catch (e) {
+        logger.warn('  ⚠️  Could not re-enable synchronous on error:', e.message);
+      }
+      logger.error('❌ PHASE 2 FAILED:', speedTestError.message);
+      throw speedTestError;
+    }
+    
+    // PHASE 3: Delete old live monitoring history (DROP corrupt indexes, delete safely, RECREATE indexes)
+    logger.info('📍 PHASE 3: Deleting old live monitoring history...');
+    try {
+      logger.debug('  🔍 [3.0] Dropping corrupt indexes to enable safe deletion...');
+      try {
+        logger.debug('    [3.0.1] Dropping idx_monitoring_history_timestamp...');
+        db.exec('DROP INDEX IF EXISTS idx_monitoring_history_timestamp');
+        logger.debug('    ✓ [3.0.2] Index dropped');
+      } catch (e) {
+        logger.warn('    ⚠️  [3.0.2] Could not drop idx_monitoring_history_timestamp:', e.message);
+      }
+      
+      try {
+        logger.debug('    [3.0.3] Dropping idx_monitoring_history_address_timestamp...');
+        db.exec('DROP INDEX IF EXISTS idx_monitoring_history_address_timestamp');
+        logger.debug('    ✓ [3.0.4] Index dropped');
+      } catch (e) {
+        logger.warn('    ⚠️  [3.0.4] Could not drop idx_monitoring_history_address_timestamp:', e.message);
+      }
+      
+      logger.debug('  🔍 [3.1] Getting count of records to delete...');
+      const liveMonitoringCount = await dbGet('SELECT COUNT(*) as count FROM live_monitoring_history WHERE datetime(timestamp) < datetime(?)', [liveMonitoringCutoff.toISOString()]);
+      logger.info(`  📊 [3.2] Found ${liveMonitoringCount.count} records to delete`);
+      
+      if (liveMonitoringCount.count > 0) {
+        logger.debug(`  📌 [3.3] Record count verified: ${liveMonitoringCount.count}`);
+        
+        // Delete using simple WHERE clause with reasonable chunks (no indexes to maintain)
+        const CHUNK_SIZE = 10000;
+        let totalDeleted = 0;
+        let chunkNum = 0;
+        
+        logger.debug('  [3.4] Attempting to disable PRAGMA synchronous...');
+        try {
+          db.exec('PRAGMA synchronous = OFF');
+          logger.debug('  ✓ [3.5] Synchronous writes disabled (for speed)');
+        } catch (e) {
+          logger.warn('  ⚠️  [3.5] Could not disable synchronous:', e.message);
+        }
+        
+        logger.debug('  [3.6] Starting chunked deletion loop (no indexes to maintain)...');
+        while (totalDeleted < liveMonitoringCount.count) {
+          chunkNum++;
+          logger.debug(`  [3.7-${chunkNum}] Starting chunk ${chunkNum}...`);
+          
+          try {
+            logger.debug(`    [3.7-${chunkNum}.a] Preparing DELETE statement...`);
+            const deleteStmt = db.prepare('DELETE FROM live_monitoring_history WHERE datetime(timestamp) < datetime(?) LIMIT ?');
+            logger.debug(`    [3.7-${chunkNum}.b] DELETE statement prepared successfully`);
+            
+            logger.debug(`    [3.7-${chunkNum}.c] Executing DELETE for chunk ${chunkNum} (CHUNK_SIZE=${CHUNK_SIZE})...`);
+            const result = deleteStmt.run(liveMonitoringCutoff.toISOString(), CHUNK_SIZE);
+            logger.debug(`    [3.7-${chunkNum}.d] DELETE execution complete, changes: ${result.changes}`);
+            
+            totalDeleted += result.changes;
+            logger.info(`  ✓ [3.7-${chunkNum}] Chunk ${chunkNum} deleted ${result.changes} records (total: ${totalDeleted}/${liveMonitoringCount.count})`);
+            
+            if (result.changes === 0) {
+              logger.debug(`    [3.7-${chunkNum}.e] No more records to delete (result.changes === 0), breaking loop`);
+              break;
+            }
+            
+            // WAL checkpoint after each chunk
+            logger.debug(`    [3.7-${chunkNum}.f] Attempting WAL checkpoint after chunk ${chunkNum}...`);
+            try {
+              logger.debug(`    [3.7-${chunkNum}.g] Calling PRAGMA wal_checkpoint(RESTART)...`);
+              db.exec('PRAGMA wal_checkpoint(RESTART)');
+              logger.debug(`    ✓ [3.7-${chunkNum}.h] WAL checkpoint complete for chunk ${chunkNum}`);
+            } catch (checkErr) {
+              logger.error(`    ❌ [3.7-${chunkNum}.h] WAL checkpoint FAILED: ${checkErr.message}`);
+              logger.error(`       Error details:`, checkErr);
+              throw checkErr;
+            }
+          } catch (chunkError) {
+            logger.error(`  ❌ [3.7-${chunkNum}] Chunk ${chunkNum} FAILED:`, chunkError.message);
+            logger.error(`     Error type: ${chunkError.constructor.name}`);
+            logger.error(`     Error code: ${chunkError.code}`);
+            logger.error(`     Chunk details: deleted so far=${totalDeleted}, chunk_size=${CHUNK_SIZE}`);
+            throw chunkError;
+          }
+        }
+        
+        logger.info(`  ✅ [3.8] All chunks completed - Deleted ${totalDeleted} old live monitoring records (in ${chunkNum} chunks)`);
+        
+        logger.debug('  [3.9] Attempting to re-enable PRAGMA synchronous...');
+        try {
+          db.exec('PRAGMA synchronous = NORMAL');
+          logger.debug('  ✓ [3.10] Synchronous writes re-enabled');
+        } catch (e) {
+          logger.warn('  ⚠️  [3.10] Could not re-enable synchronous:', e.message);
+        }
+        
+        logger.debug('  [3.11] Recreating indexes on cleaned table...');
+        try {
+          logger.debug('    [3.11.1] Creating idx_monitoring_history_timestamp...');
+          db.exec('CREATE INDEX IF NOT EXISTS idx_monitoring_history_timestamp ON live_monitoring_history(timestamp)');
+          logger.debug('    ✓ [3.11.2] Index created');
+        } catch (e) {
+          logger.error('    ❌ [3.11.2] Could not create idx_monitoring_history_timestamp:', e.message);
+        }
+        
+        try {
+          logger.debug('    [3.11.3] Creating idx_monitoring_history_address_timestamp...');
+          db.exec('CREATE INDEX IF NOT EXISTS idx_monitoring_history_address_timestamp ON live_monitoring_history(address, timestamp DESC)');
+          logger.debug('    ✓ [3.11.4] Index created');
+        } catch (e) {
+          logger.error('    ❌ [3.11.4] Could not create idx_monitoring_history_address_timestamp:', e.message);
+        }
+        
+        logger.debug('  [3.12] Invalidating monitoring cache...');
+        invalidateMonitoringCache();
+        logger.debug('  ✓ [3.13] Monitoring cache invalidated');
+      } else {
+        logger.info('ℹ️  [3.14] No old live monitoring records to delete');
+      }
+    } catch (liveMonitoringError) {
+      logger.error('  ❌ [3.99] PHASE 3 ERROR HANDLING TRIGGERED');
+      logger.error(`     Error message: ${liveMonitoringError.message}`);
+      logger.error(`     Error type: ${liveMonitoringError.constructor.name}`);
+      logger.error(`     Error code: ${liveMonitoringError.code}`);
+      logger.error(`     Stack: ${liveMonitoringError.stack}`);
+      
+      logger.debug('  [3.100] Attempting to re-enable PRAGMA synchronous in error handler...');
+      try {
+        db.exec('PRAGMA synchronous = NORMAL');
+        logger.debug('  ✓ [3.101] Synchronous writes re-enabled in error handler');
+      } catch (e) {
+        logger.error('  ❌ [3.101] Could not re-enable synchronous on error:', e.message);
+      }
+      
+      logger.debug('  [3.102] Attempting to recreate indexes in error handler...');
+      try {
+        logger.debug('    [3.102.1] Recreating idx_monitoring_history_timestamp...');
+        db.exec('CREATE INDEX IF NOT EXISTS idx_monitoring_history_timestamp ON live_monitoring_history(timestamp)');
+        logger.debug('    ✓ [3.102.2] Index recreated');
+      } catch (e) {
+        logger.warn('    ⚠️  [3.102.2] Could not recreate idx_monitoring_history_timestamp:', e.message);
+      }
+      
+      try {
+        logger.debug('    [3.102.3] Recreating idx_monitoring_history_address_timestamp...');
+        db.exec('CREATE INDEX IF NOT EXISTS idx_monitoring_history_address_timestamp ON live_monitoring_history(address, timestamp DESC)');
+        logger.debug('    ✓ [3.102.4] Index recreated');
+      } catch (e) {
+        logger.warn('    ⚠️  [3.102.4] Could not recreate idx_monitoring_history_address_timestamp:', e.message);
+      }
+      
+      logger.error('❌ PHASE 3 FAILED:', liveMonitoringError.message);
+      throw liveMonitoringError;
+    }
+    
+    // PHASE 4: Invalidate caches
+    logger.info('📍 PHASE 4: Invalidating caches...');
+    try {
+      invalidateHistoryCache();
+      invalidateMonitoringCache();
+      invalidateSettingsCache();
+      queryCache.flushAll();
+      logger.info('✅ Caches invalidated');
+    } catch (cacheError) {
+      logger.warn('⚠️  Cache invalidation warning:', cacheError.message);
+    }
+    
+    // PHASE 5: Schedule async optimization
+    logger.info('📍 PHASE 5: Scheduling async optimization...');
+    
+    // Capture current size before optimization
+    let sizeBefore = 0;
+    try {
+      sizeBefore = fs.statSync(dbPath).size;
+      logger.debug(`  📊 Database size BEFORE optimization: ${(sizeBefore / 1024 / 1024).toFixed(2)} MB`);
+    } catch (e) {
+      logger.warn('  ⚠️  Could not get database size before optimization:', e.message);
+    }
+    
+    setImmediate(() => {
+      setTimeout(() => {
+        try {
+          logger.debug('  🔧 Running PRAGMA wal_checkpoint(RESTART)...');
+          db.exec('PRAGMA wal_checkpoint(RESTART)');
+          logger.debug('  ✓ WAL checkpoint complete');
+          
+          logger.debug('  🧹 Running VACUUM (for space reclamation)...');
+          db.exec('VACUUM');
+          logger.debug('  ✓ VACUUM complete');
+          
+          logger.debug('  📌 Final PRAGMA wal_checkpoint(TRUNCATE)...');
+          db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+          logger.debug('  ✓ Final checkpoint complete');
+          
+          // Get size after optimization
+          try {
+            const sizeAfter = fs.statSync(dbPath).size;
+            const spaceSaved = sizeBefore - sizeAfter;
+            const percentReclaimed = sizeBefore > 0 ? ((spaceSaved / sizeBefore) * 100).toFixed(1) : 0;
+            
+            logger.info(`✅ Database optimized`);
+            logger.info(`  📊 Size AFTER optimization: ${(sizeAfter / 1024 / 1024).toFixed(2)} MB`);
+            if (spaceSaved > 0) {
+              logger.info(`  💾 Space reclaimed: ${(spaceSaved / 1024 / 1024).toFixed(2)} MB (${percentReclaimed}%)`);
+            } else {
+              logger.info(`  ℹ️  Database size stable (already optimized)`);
+            }
+          } catch (e) {
+            logger.warn('  ⚠️  Could not calculate space reclaimed:', e.message);
+            logger.info(`✅ Database optimized`);
+          }
+        } catch (optimizeError) {
+          logger.warn('⚠️  Async optimization warning:', optimizeError.message);
+        }
+      }, 50);
+    });
+    
+    logger.info('✅ Cleanup completed successfully');
+    
+  } catch (error) {
+    logger.error('❌ Cleanup FAILED:', error.message);
+    throw error;
+  }
+}
+
+// Cleanup scheduler variable
+let cleanupJob = null;
+
+// Schedule data cleanup
+async function scheduleDataCleanup() {
+  try {
+    const settings = await loadSettings();
+    const retention = settings.dataRetention || {};
+    
+    if (!retention.autoCleanupEnabled) {
+      logger.debug('Data cleanup scheduling: disabled');
+      if (cleanupJob) {
+        cleanupJob.cancel();
+        cleanupJob = null;
+      }
+      return;
+    }
+    
+    const cleanupTime = retention.autoCleanupTime || '00:00';
+    const [hours, minutes] = cleanupTime.split(':').map(Number);
+    
+    logger.info(`📅 Scheduling data cleanup daily at ${cleanupTime}`);
+    
+    // Cancel existing job if any
+    if (cleanupJob) {
+      cleanupJob.cancel();
+    }
+    
+    // Schedule cleanup at specified time daily
+    cleanupJob = schedule.scheduleJob(`${minutes} ${hours} * * *`, async () => {
+      logger.info(`⏰ Running scheduled data cleanup at ${new Date().toLocaleString()}`);
+      await cleanupOldData();
+    });
+    
+    logger.debug(`✓ Data cleanup scheduled for ${cleanupTime} daily`);
+  } catch (error) {
+    logger.error('Failed to schedule data cleanup:', error.message);
+  }
+}
+
 // Start monitoring (always runs)
 async function startMonitoring() {
   logger.info('=== Monitoring started ===');
@@ -1434,6 +1836,10 @@ async function startMonitoring() {
   });
 
   logger.info(`Scheduled speed tests every ${interval} minutes`);
+  
+  // Schedule data cleanup
+  await scheduleDataCleanup();
+  
   broadcast({ type: 'status', isMonitoring: true });
 }
 
@@ -2017,6 +2423,68 @@ app.delete('/api/history', async (req, res) => {
   }
 });
 
+// Manual data cleanup endpoint
+app.post('/api/cleanup', async (req, res) => {
+  try {
+    logger.info('🧹 Manual data cleanup requested');
+    await cleanupOldData();
+    
+    // Clear all server-side caches after successful cleanup
+    logger.debug('🗑️  Clearing all server-side caches...');
+    invalidateHistoryCache();
+    invalidateMonitoringCache();
+    invalidateSettingsCache();
+    queryCache.flushAll();
+    logger.debug('✓ Server caches cleared');
+    
+    // Restart monitoring after cleanup
+    logger.info('🔄 Restarting monitoring after cleanup...');
+    if (scheduledJob) {
+      scheduledJob.cancel();
+      logger.debug('  ✓ Previous scheduled job cancelled');
+    }
+    
+    // Re-schedule the monitoring using current settings
+    const interval = monitoringData.settings.testInterval || 30;
+    scheduledJob = schedule.scheduleJob(`*/${interval} * * * *`, async () => {
+      try {
+        logger.info('🔄 Running scheduled speed test...');
+        const result = await performSpeedTest();
+        if (result.error) {
+          logger.warn('⚠️  Scheduled speed test completed with errors. Will retry on next schedule.');
+        } else {
+          logger.success('✅ Scheduled speed test completed successfully.');
+        }
+      } catch (error) {
+        logger.error('❌ Scheduled speed test failed:', error.message);
+      }
+    });
+    logger.info(`✓ Monitoring restarted (speed tests every ${interval} minutes)`);
+    
+    // Broadcast cache clear event to frontend
+    broadcast({
+      type: 'cache_clear',
+      message: 'Database cleanup completed - caches cleared',
+      timestamp: new Date().toISOString()
+    });
+    
+    logger.info('✓ Cache clear broadcast sent to clients');
+    
+    res.json({ 
+      success: true, 
+      message: 'Data cleanup completed successfully',
+      cacheCleared: true,
+      monitoringRestarted: true
+    });
+  } catch (error) {
+    logger.error('Data cleanup failed:', error.message);
+    res.status(500).json({ 
+      error: 'Data cleanup failed',
+      message: error.message
+    });
+  }
+});
+
 // Test notification - sends to ALL enabled notification channels
 app.post('/api/test-notification', (req, res) => {
   logger.info('Test notification requested');
@@ -2098,6 +2566,17 @@ schedule.scheduleJob('0 3 * * *', cleanupOldMonitoringHistory);
 // Graceful shutdown
 process.on('SIGINT', () => {
   logger.warn('Shutting down gracefully...');
+  
+  // Cancel scheduled jobs
+  if (scheduledJob) {
+    scheduledJob.cancel();
+    scheduledJob = null;
+  }
+  if (cleanupJob) {
+    cleanupJob.cancel();
+    cleanupJob = null;
+  }
+  
   db.close();
   process.exit(0);
 });

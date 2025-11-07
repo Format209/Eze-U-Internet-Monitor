@@ -259,6 +259,12 @@ function App() {
           case 'settings':
             setSettings(message.data);
             break;
+          case 'cache_clear':
+            // Clear frontend cache and reload key data after cleanup
+            console.log('🗑️  Cache clear event received:', message.message);
+            // Request fresh data from server
+            fetchHistory();
+            break;
           case 'historyCleared':
             setHistory([]);
             break;

@@ -16,9 +16,16 @@ function Settings({ settings, updateSettings }) {
   const [activeTab, setActiveTab] = useState('monitoring');
   const [localSettings, setLocalSettings] = useState({
     ...settings,
-    monitorInterval: settings.monitorInterval || 5,
-    logLevel: settings.logLevel || 'INFO',
+    monitorInterval: settings.monitorInterval || 60,
+    liveMonitoringInterval: settings.liveMonitoringInterval || 10,
+    logLevel: settings.logLevel || 'ALL',
     monthlyDataCap: settings.monthlyDataCap || '',
+    dataRetention: settings.dataRetention || {
+      speedTestRetentionDays: 90,
+      liveMonitoringRetentionDays: 7,
+      autoCleanupEnabled: true,
+      autoCleanupTime: '00:00'
+    },
     monitoringHosts: settings.monitoringHosts || [
       { address: '8.8.8.8', name: 'Google DNS', enabled: true },
       { address: '1.1.1.1', name: 'Cloudflare DNS', enabled: true },
@@ -49,6 +56,11 @@ function Settings({ settings, updateSettings }) {
       quietHoursEnabled: false,
       quietHoursStart: '22:00',
       quietHoursEnd: '08:00'
+    },
+    thresholds: settings.thresholds || {
+      minDownload: 10,
+      minUpload: 10,
+      maxPing: 500
     }
   });
   const [isSaving, setIsSaving] = useState(false);
@@ -86,6 +98,10 @@ function Settings({ settings, updateSettings }) {
   const [consoleSearch, setConsoleSearch] = useState('');
   const [autoScroll, setAutoScroll] = useState(true);
   const consoleEndRef = React.useRef(null);
+
+  // Data cleanup state
+  const [isCleaningUp, setIsCleaningUp] = useState(false);
+  const [cleanupStatus, setCleanupStatus] = useState(null);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -130,13 +146,164 @@ function Settings({ settings, updateSettings }) {
     }
   };
 
-  const handleReset = () => {
-    setLocalSettings(settings);
-    const resetDataCap = parseDataCap(settings.monthlyDataCap);
-    setDataCapValue(resetDataCap.value);
-    setDataCapUnit(resetDataCap.unit);
-    setSaveMessage('Settings reset');
-    setTimeout(() => setSaveMessage(''), 3000);
+  const handleReset = async () => {
+    // Reset only current tab values back to DEFAULT values
+    const resetSettings = { ...localSettings };
+    let dataCapToSave = '';
+    
+    switch(activeTab) {
+      case 'monitoring':
+        resetSettings.testInterval = 60;
+        resetSettings.monitorInterval = 10;
+        resetSettings.logLevel = 'INFO';
+        break;
+      case 'hosts':
+        resetSettings.monitoringHosts = [
+          { address: '8.8.8.8', name: 'Google DNS', enabled: true },
+          { address: '1.1.1.1', name: 'Cloudflare DNS', enabled: true },
+          { address: '208.67.222.222', name: 'OpenDNS', enabled: false }
+        ];
+        break;
+      case 'thresholds':
+        resetSettings.thresholds = {
+          minDownload: 10,
+          minUpload: 10,
+          maxPing: 500
+        };
+        break;
+      case 'notifications':
+        resetSettings.notificationSettings = {
+          enabled: false,
+          types: {
+            browser: { enabled: true, sound: true },
+            email: { enabled: false, address: '', smtp: { host: '', port: 587, user: '', password: '' } },
+            webhook: { enabled: false, url: '', method: 'POST', headers: {} },
+            telegram: { enabled: false, botToken: '', chatId: '' },
+            discord: { enabled: false, webhookUrl: '' },
+            slack: { enabled: false, webhookUrl: '' },
+            sms: { enabled: false, provider: 'twilio', accountSid: '', authToken: '', fromNumber: '', toNumber: '' }
+          },
+          events: {
+            onSpeedTestComplete: true,
+            onThresholdBreach: true,
+            onHostDown: true,
+            onHostUp: false,
+            onConnectionLost: true,
+            onConnectionRestored: false,
+            onHighLatency: false,
+            onPacketLoss: false
+          },
+          minTimeBetweenNotifications: 5,
+          quietHoursEnabled: false,
+          quietHoursStart: '22:00',
+          quietHoursEnd: '08:00'
+        };
+        break;
+      case 'retention':
+        resetSettings.dataRetention = {
+          speedTestRetentionDays: 90,
+          liveMonitoringRetentionDays: 7,
+          autoCleanupEnabled: true,
+          autoCleanupTime: '00:00'
+        };
+        resetSettings.monthlyDataCap = '';
+        dataCapToSave = '';
+        setDataCapValue('');
+        setDataCapUnit('GB');
+        break;
+      default:
+        break;
+    }
+    
+    setLocalSettings(resetSettings);
+    
+    // Auto-save the reset values
+    setIsSaving(true);
+    try {
+      const monthlyDataCap = activeTab === 'retention' ? dataCapToSave : (dataCapValue && dataCapUnit ? `${dataCapValue} ${dataCapUnit}` : resetSettings.monthlyDataCap || '');
+      const settingsToSave = {
+        ...resetSettings,
+        monthlyDataCap
+      };
+      await updateSettings(settingsToSave);
+      setSaveMessage(`${activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} settings reset and saved!`);
+      setTimeout(() => setSaveMessage(''), 3000);
+    } catch (error) {
+      setSaveMessage('Error resetting settings');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Manual data cleanup
+  const handleManualCleanup = async () => {
+    setIsCleaningUp(true);
+    setCleanupStatus(null);
+    
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/cleanup`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        setCleanupStatus({
+          type: 'success',
+          message: '✅ Data cleanup completed successfully'
+        });
+        
+        // Clear frontend cache and refresh data after cleanup
+        // Add cache-busting parameter to force fresh data from server
+        try {
+          const timestamp = Date.now();
+          
+          // Refresh history data with cache buster
+          const historyResponse = await fetch(`${BACKEND_URL}/api/history?limit=100&t=${timestamp}`);
+          if (historyResponse.ok) {
+            const historyData = await historyResponse.json();
+            console.log('✓ History data refreshed after cleanup:', historyData.length || historyData.results?.length || 0, 'records');
+          }
+          
+          // Refresh settings
+          const settingsResponse = await fetch(`${BACKEND_URL}/api/settings?t=${timestamp}`);
+          if (settingsResponse.ok) {
+            const settingsData = await settingsResponse.json();
+            console.log('✓ Settings refreshed after cleanup');
+          }
+          
+          // Refresh live monitoring
+          const statusResponse = await fetch(`${BACKEND_URL}/api/status?t=${timestamp}`);
+          if (statusResponse.ok) {
+            const statusData = await statusResponse.json();
+            console.log('✓ Status refreshed after cleanup:', statusData);
+          }
+          
+          console.log('✓ Frontend cache cleared and data refreshed');
+        } catch (refreshError) {
+          console.warn('Warning: Could not refresh all data after cleanup:', refreshError.message);
+          // Don't fail the cleanup, just log the warning
+        }
+      } else {
+        throw new Error(result.message || 'Cleanup failed');
+      }
+    } catch (error) {
+      setCleanupStatus({
+        type: 'error',
+        message: `❌ Cleanup failed: ${error.message}`
+      });
+    } finally {
+      setIsCleaningUp(false);
+      // Clear status after 5 seconds
+      setTimeout(() => setCleanupStatus(null), 5000);
+    }
   };
 
   // Fetch report data based on time range
@@ -487,6 +654,13 @@ function Settings({ settings, updateSettings }) {
             >
               <Monitor size={20} />
               <span>Console</span>
+            </button>
+            <button
+              className={`sidebar-tab ${activeTab === 'retention' ? 'active' : ''}`}
+              onClick={() => setActiveTab('retention')}
+            >
+              <Calendar size={20} />
+              <span>Data Retention</span>
             </button>
             <button
               className={`sidebar-tab ${activeTab === 'donate' ? 'active' : ''}`}
@@ -2041,6 +2215,126 @@ function Settings({ settings, updateSettings }) {
                     (consoleFilter === 'ALL' || log.level === consoleFilter) &&
                     (consoleSearch === '' || log.message.toLowerCase().includes(consoleSearch.toLowerCase()))
                   ).length}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Data Retention Tab */}
+            {activeTab === 'retention' && (
+              <div className="settings-section">
+                <h3>Data Retention & Auto-Cleanup</h3>
+                <p className="section-description">
+                  Configure how long data is kept and enable automatic cleanup of old records to maintain database performance.
+                </p>
+
+                <div className="settings-group">
+                  <div className="settings-item">
+                    <label>Speed Test Data Retention</label>
+                    <div className="input-group">
+                      <input
+                        type="number"
+                        min="1"
+                        max="3650"
+                        value={localSettings.dataRetention?.speedTestRetentionDays || 90}
+                        onChange={(e) => setLocalSettings(prev => ({
+                          ...prev,
+                          dataRetention: {
+                            ...prev.dataRetention,
+                            speedTestRetentionDays: parseInt(e.target.value) || 90
+                          }
+                        }))}
+                      />
+                      <span className="input-suffix">days</span>
+                    </div>
+                    <small>Speed test records older than this will be automatically deleted (1-3650 days)</small>
+                  </div>
+
+                  <div className="settings-item">
+                    <label>Live Monitoring Data Retention</label>
+                    <div className="input-group">
+                      <input
+                        type="number"
+                        min="1"
+                        max="365"
+                        value={localSettings.dataRetention?.liveMonitoringRetentionDays || 7}
+                        onChange={(e) => setLocalSettings(prev => ({
+                          ...prev,
+                          dataRetention: {
+                            ...prev.dataRetention,
+                            liveMonitoringRetentionDays: parseInt(e.target.value) || 7
+                          }
+                        }))}
+                      />
+                      <span className="input-suffix">days</span>
+                    </div>
+                    <small>Live monitoring history records older than this will be automatically deleted (1-365 days)</small>
+                  </div>
+                </div>
+
+                <div className="settings-group">
+                  <div className="settings-item checkbox-item">
+                    <input
+                      type="checkbox"
+                      id="autoCleanup"
+                      checked={localSettings.dataRetention?.autoCleanupEnabled !== false}
+                      onChange={(e) => setLocalSettings(prev => ({
+                        ...prev,
+                        dataRetention: {
+                          ...prev.dataRetention,
+                          autoCleanupEnabled: e.target.checked
+                        }
+                      }))}
+                    />
+                    <label htmlFor="autoCleanup">Enable Automatic Cleanup</label>
+                  </div>
+                  <small>Automatically delete data older than retention period daily</small>
+
+                  {localSettings.dataRetention?.autoCleanupEnabled !== false && (
+                    <div className="settings-item">
+                      <label>Cleanup Schedule Time</label>
+                      <div className="input-group">
+                        <input
+                          type="time"
+                          value={localSettings.dataRetention?.autoCleanupTime || '00:00'}
+                          onChange={(e) => setLocalSettings(prev => ({
+                            ...prev,
+                            dataRetention: {
+                              ...prev.dataRetention,
+                              autoCleanupTime: e.target.value
+                            }
+                          }))}
+                        />
+                        <span className="input-suffix">🕐 Local Time</span>
+                      </div>
+                      <small>Time of day to run automatic cleanup (local server time)</small>
+                    </div>
+                  )}
+                </div>
+
+                <div className="settings-info-box">
+                  <strong>📊 Retention Summary:</strong>
+                  <ul>
+                    <li>Speed Tests: Last {localSettings.dataRetention?.speedTestRetentionDays || 90} days</li>
+                    <li>Live Monitoring: Last {localSettings.dataRetention?.liveMonitoringRetentionDays || 7} days</li>
+                    <li>Cleanup: {localSettings.dataRetention?.autoCleanupEnabled !== false ? `Daily at ${localSettings.dataRetention?.autoCleanupTime || '00:00'}` : 'Disabled'}</li>
+                  </ul>
+                </div>
+
+                <div className="settings-group">
+                  <button
+                    className="btn-cleanup"
+                    onClick={handleManualCleanup}
+                    disabled={isCleaningUp}
+                    title="Run data cleanup now to delete records older than retention period"
+                  >
+                    <RotateCcw size={20} className={isCleaningUp ? 'spinner' : ''} />
+                    {isCleaningUp ? 'Cleaning up...' : 'Run Cleanup Now'}
+                  </button>
+                  {cleanupStatus && (
+                    <div className={`cleanup-status ${cleanupStatus.type}`}>
+                      {cleanupStatus.message}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
