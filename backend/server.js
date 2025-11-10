@@ -814,7 +814,7 @@ function broadcastImmediate(data) {
   });
   logger.debug(`Sent to ${sentCount} clients`);
   if (sentCount === 0) {
-    logger.warn('No WebSocket clients connected!');
+    logger.debug('No WebSocket clients connected!');
   }
 }
 
