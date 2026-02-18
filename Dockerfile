@@ -39,14 +39,14 @@ RUN apt-get update && apt-get install -y \
     python3-dev \
     make \
     g++ \
+    gnupg \
+    apt-transport-https \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Ookla Speedtest CLI - Download binary directly (more reliable than repository)
-RUN wget -qO speedtest.tgz https://install.speedtest.net/app/cli/ookla-speedtest-1.2.0-linux-x86_64.tgz \
-    && tar xzf speedtest.tgz \
-    && mv speedtest /usr/local/bin/ \
-    && rm speedtest.tgz speedtest.5 speedtest.md 2>/dev/null || true \
-    && chmod +x /usr/local/bin/speedtest \
+# Install Ookla Speedtest CLI using official repository (supports multiple architectures)
+RUN curl -s https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | bash \
+    && apt-get install -y speedtest \
+    && rm -rf /var/lib/apt/lists/* \
     && speedtest --version
 
 # Configure npm for better reliability
