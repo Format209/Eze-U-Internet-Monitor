@@ -1,6 +1,6 @@
 # Multi-stage Docker build for Ezé-U Internet Monitor
 # Stage 1: Build frontend
-FROM node:20-alpine AS frontend-builder
+FROM node:20-slim AS frontend-builder
 
 WORKDIR /app/frontend
 
@@ -23,24 +23,23 @@ COPY frontend/ ./
 RUN npm run build
 
 # Stage 2: Backend with Ookla CLI
-FROM node:20-alpine AS backend
+FROM node:20-slim AS backend
 
 WORKDIR /app
 
 # Install dependencies needed for Ookla Speedtest CLI, ping, and better-sqlite3 compilation
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y \
     wget \
     ca-certificates \
     curl \
-    iputils \
+    iputils-ping \
     bash \
-    build-base \
+    build-essential \
     python3 \
     python3-dev \
-    py3-setuptools \
     make \
     g++ \
-    ca-certificates
+    && rm -rf /var/lib/apt/lists/*
 
 # Install Ookla Speedtest CLI - Download binary directly (more reliable than repository)
 RUN wget -qO speedtest.tgz https://install.speedtest.net/app/cli/ookla-speedtest-1.2.0-linux-x86_64.tgz \
