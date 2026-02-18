@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const WebSocket = require('ws');
 const http = require('http');
+const net = require('net'); // For TCP port checking
 const { exec } = require('child_process');
 const util = require('util');
 const fs = require('fs');
@@ -1065,8 +1066,68 @@ async function sendEmailNotification(emailConfig, message, eventType) {
 
 // Perform ping test
 // Fast ping for high-frequency monitoring (1-5 second intervals)
-async function performPing(host = '8.8.8.8') {
+// TCP port check function
+async function checkPort(host, port, timeout = 2000) {
+  return new Promise((resolve) => {
+    const startTime = Date.now();
+    const socket = new net.Socket();
+    
+    socket.setTimeout(timeout);
+    
+    socket.on('connect', () => {
+      const responseTime = Date.now() - startTime;
+      socket.destroy();
+      resolve(responseTime);
+    });
+    
+    socket.on('timeout', () => {
+      socket.destroy();
+      resolve(-1);
+    });
+    
+    socket.on('error', () => {
+      socket.destroy();
+      resolve(-1);
+    });
+    
+    socket.connect(port, host);
+  });
+}
+
+async function performPing(hostString = '8.8.8.8') {
   try {
+    // Parse host:port syntax
+    let host = hostString;
+    let port = null;
+    
+    // Check if port is specified (e.g., "192.168.1.1:53" or "dns.google:53")
+    if (hostString.includes(':')) {
+      const parts = hostString.split(':');
+      // Handle IPv6 addresses (they have multiple colons)
+      if (parts.length === 2) {
+        host = parts[0];
+        const parsedPort = parseInt(parts[1], 10);
+        if (!isNaN(parsedPort) && parsedPort > 0 && parsedPort <= 65535) {
+          port = parsedPort;
+        }
+      }
+    }
+    
+    // If port is specified, use TCP connection check
+    if (port) {
+      logger.debug(`Checking TCP port ${hostString}`);
+      const responseTime = await checkPort(host, port, 2000);
+      
+      if (responseTime > 0) {
+        logger.debug(`TCP ${hostString}: online, time=${responseTime}ms`);
+        return responseTime;
+      } else {
+        logger.debug(`TCP ${hostString}: offline/unreachable`);
+        return -1;
+      }
+    }
+    
+    // Otherwise, use ICMP ping
     // Detect OS for proper ping flags
     // Windows uses -n, Linux/Mac uses -c
     const isWindows = process.platform === 'win32';
@@ -1087,7 +1148,7 @@ async function performPing(host = '8.8.8.8') {
     }
     return -1;
   } catch (error) {
-    logger.error(`Ping error for ${host}:`, error.message);
+    logger.error(`Ping error for ${hostString}:`, error.message);
     return -1;
   }
 }

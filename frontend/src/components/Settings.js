@@ -775,7 +775,7 @@ function Settings({ settings, updateSettings }) {
               <div className="settings-section">
                 <h3>Monitoring Hosts</h3>
           <p className="section-description">
-            Configure which hosts to ping during live monitoring. Multiple hosts can be monitored simultaneously.
+            Configure which hosts to ping during live monitoring. Optionally specify a port (e.g., 127.0.0.1:53 for DNS) to test TCP connectivity instead of ICMP ping.
           </p>
 
           <div className="monitoring-hosts-list">
@@ -814,7 +814,7 @@ function Settings({ settings, updateSettings }) {
               />
               <input
                 type="text"
-                placeholder="IP Address (e.g., 8.8.8.8)"
+                placeholder="IP/hostname with optional port (e.g., 8.8.8.8 or 127.0.0.1:53)"
                 value={newHost.address}
                 onChange={(e) => setNewHost({ ...newHost, address: e.target.value })}
               />

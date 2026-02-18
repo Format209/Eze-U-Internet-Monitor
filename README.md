@@ -38,7 +38,7 @@ The ISC License is a permissive open-source license similar to MIT and BSD, allo
 - **Tabbed Settings Interface**: Organized sidebar with Monitoring, Live Hosts, Thresholds, Notifications, Reports, and Donate tabs
 - **Test Interval**: Configure automatic speed test frequency (minutes)
 - **Live Monitoring Interval**: Configure host ping check frequency (seconds, recommended 3-10s)
-- **Multiple Host Monitoring**: Add/remove custom hosts to monitor
+- **Multiple Host Monitoring**: Add/remove custom hosts to monitor with optional port-specific TCP checks (e.g., `127.0.0.1:53`)
 - **Performance Thresholds**: Set minimum download/upload speeds and maximum ping latency
 - **Monthly Data Cap**: Set a limit for speed test data usage with automatic blocking when exceeded (resets monthly)
 - **Data Usage Tracking**: Real-time monitoring of download/upload/total data consumed by speed tests
@@ -192,6 +192,7 @@ The application initializes with these defaults (configurable in Settings tab):
 **Live Hosts Tab:**
 - Default Hosts: `8.8.8.8` (Google DNS), `1.1.1.1` (Cloudflare DNS), `208.67.222.222` (OpenDNS)
 - Add/remove custom hosts for monitoring
+- Port-specific checking: Specify `host:port` (e.g., `127.0.0.1:53` for DNS) to test TCP connectivity
 - Toggle individual host monitoring on/off
 
 **Performance Thresholds Tab:**
