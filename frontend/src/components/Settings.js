@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Save, RotateCcw, Plus, Trash2, Settings as SettingsIcon, Activity, AlertTriangle, Heart, FileText, Calendar, Download, ArrowUpDown, ArrowUp, ArrowDown, Bell, Monitor, Mail, Send, MessageSquare, Hash, Smartphone, X, Check } from 'lucide-react';
+import { Save, RotateCcw, Plus, Trash2, Pencil, Settings as SettingsIcon, Activity, AlertTriangle, Heart, FileText, Calendar, Download, ArrowUpDown, ArrowUp, ArrowDown, Bell, Monitor, Mail, Send, MessageSquare, Hash, Smartphone, X, Check } from 'lucide-react';
 import { format } from 'date-fns';
 import './Settings.css';
 
@@ -66,6 +66,8 @@ function Settings({ settings, updateSettings }) {
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
   const [newHost, setNewHost] = useState({ address: '', name: '', enabled: true });
+  const [editingHostIndex, setEditingHostIndex] = useState(null);
+  const [editingHost, setEditingHost] = useState({ address: '', name: '' });
   const [notificationConfigModal, setNotificationConfigModal] = useState({ isOpen: false, type: null });
   
   // Parse monthlyDataCap into separate value and unit
@@ -597,6 +599,31 @@ function Settings({ settings, updateSettings }) {
       ...prev,
       monitoringHosts: updatedHosts
     }));
+    if (editingHostIndex === index) {
+      setEditingHostIndex(null);
+      setEditingHost({ address: '', name: '' });
+    }
+  };
+
+  const handleStartEdit = (index) => {
+    const host = (localSettings.monitoringHosts || [])[index];
+    setEditingHostIndex(index);
+    setEditingHost({ address: host.address, name: host.name });
+  };
+
+  const handleSaveEdit = () => {
+    if (editingHost.address.trim() && editingHost.name.trim()) {
+      const hosts = [...(localSettings.monitoringHosts || [])];
+      hosts[editingHostIndex] = { ...hosts[editingHostIndex], address: editingHost.address.trim(), name: editingHost.name.trim() };
+      setLocalSettings(prev => ({ ...prev, monitoringHosts: hosts }));
+      setEditingHostIndex(null);
+      setEditingHost({ address: '', name: '' });
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingHostIndex(null);
+    setEditingHost({ address: '', name: '' });
   };
 
   return (
@@ -780,25 +807,78 @@ function Settings({ settings, updateSettings }) {
 
           <div className="monitoring-hosts-list">
             {(localSettings.monitoringHosts || []).map((host, index) => (
-              <div key={index} className="monitoring-host-item">
+              <div key={index} className={`monitoring-host-item${editingHostIndex === index ? ' editing' : ''}`}>
                 <div className="host-toggle">
                   <input
                     type="checkbox"
                     checked={host.enabled}
                     onChange={() => handleHostToggle(index)}
+                    disabled={editingHostIndex === index}
                   />
                 </div>
-                <div className="host-details">
-                  <div className="host-name">{host.name}</div>
-                  <div className="host-address-small">{host.address}</div>
+                {editingHostIndex === index ? (
+                  <div className="host-edit-form">
+                    <input
+                      className="host-edit-input"
+                      type="text"
+                      placeholder="Host Name"
+                      value={editingHost.name}
+                      onChange={(e) => setEditingHost(prev => ({ ...prev, name: e.target.value }))}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleSaveEdit(); if (e.key === 'Escape') handleCancelEdit(); }}
+                      autoFocus
+                    />
+                    <input
+                      className="host-edit-input"
+                      type="text"
+                      placeholder="IP/hostname with optional port"
+                      value={editingHost.address}
+                      onChange={(e) => setEditingHost(prev => ({ ...prev, address: e.target.value }))}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleSaveEdit(); if (e.key === 'Escape') handleCancelEdit(); }}
+                    />
+                  </div>
+                ) : (
+                  <div className="host-details">
+                    <div className="host-name">{host.name}</div>
+                    <div className="host-address-small">{host.address}</div>
+                  </div>
+                )}
+                <div className="host-action-buttons">
+                  {editingHostIndex === index ? (
+                    <>
+                      <button
+                        className="btn-save-host"
+                        onClick={handleSaveEdit}
+                        disabled={!editingHost.address.trim() || !editingHost.name.trim()}
+                        title="Save changes"
+                      >
+                        <Check size={16} />
+                      </button>
+                      <button
+                        className="btn-cancel-host"
+                        onClick={handleCancelEdit}
+                        title="Cancel edit"
+                      >
+                        <X size={16} />
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      className="btn-edit-host"
+                      onClick={() => handleStartEdit(index)}
+                      title="Edit host"
+                    >
+                      <Pencil size={16} />
+                    </button>
+                  )}
+                  <button
+                    className="btn-remove-host"
+                    onClick={() => handleRemoveHost(index)}
+                    title="Remove host"
+                    disabled={editingHostIndex === index}
+                  >
+                    <Trash2 size={16} />
+                  </button>
                 </div>
-                <button
-                  className="btn-remove-host"
-                  onClick={() => handleRemoveHost(index)}
-                  title="Remove host"
-                >
-                  <Trash2 size={16} />
-                </button>
               </div>
             ))}
           </div>

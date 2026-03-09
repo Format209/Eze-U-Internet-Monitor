@@ -444,7 +444,7 @@ function App() {
 
       <footer className="app-footer">
         <div className="footer-content">
-          <p>Made with ❤️ by Format209</p>
+          <p>Made with ❤️ for learning.</p>
           <a
             href="https://github.com/sponsors/Format209"
             target="_blank"
