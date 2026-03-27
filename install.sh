@@ -52,6 +52,11 @@ QST="  [${COL_MAGENTA}?${COL_NC}]"
 RECONFIGURE=false
 UNATTENDED=false
 
+# Auto-enable unattended mode when stdin is not a terminal (e.g. curl | bash)
+if [[ ! -t 0 ]]; then
+    UNATTENDED=true
+fi
+
 # ── Detected values ──────────────────────────────────────────
 PKG_INSTALL=""
 PKG_UPDATE=""
@@ -471,8 +476,9 @@ configure_env() {
          || echo "UTC")
 
     local port="${DEFAULT_PORT}"
-    if [[ "${UNATTENDED}" == "false" ]]; then
-        read -r -p "$(echo -e "${QST}  Backend port [${port}]: ")" input_port
+    if [[ "${UNATTENDED}" == "false" ]] && [[ -t 0 ]]; then
+        local input_port
+        read -r -p "$(echo -e "${QST}  Backend port [${port}]: ")" input_port || true
         port="${input_port:-${port}}"
     fi
 
