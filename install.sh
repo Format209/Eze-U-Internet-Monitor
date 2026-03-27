@@ -297,11 +297,36 @@ install_speedtest_cli() {
     fi
 
     if [[ "${PKG_INSTALL}" == apt-get* ]]; then
-        # Use Ookla's official packagecloud script — handles Ubuntu AND Debian correctly
-        # os_type forces non-interactive mode in the packagecloud script
-        run_cmd "Adding Ookla repository (deb)" \
-            bash -c 'curl -fsSL https://packagecloud.io/ookla/speedtest-cli/script.deb.sh | DEBIAN_FRONTEND=noninteractive bash'
-        run_cmd "Installing speedtest" apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" speedtest
+        # Manually add Ookla repo — works on both Ubuntu and Debian (any codename)
+        run_cmd "Installing apt-transport-https" \
+            apt-get install -y apt-transport-https gnupg lsb-release ca-certificates
+
+        run_cmd "Adding Ookla GPG key" \
+            bash -c 'curl -fsSL https://packagecloud.io/ookla/speedtest-cli/gpgkey \
+                | gpg --batch --yes --dearmor -o /usr/share/keyrings/ookla-speedtest.gpg'
+
+        # Detect OS and pick the correct repo base URL
+        # Ookla only publishes Ubuntu repos on packagecloud; for Debian we fall back to 'ubuntu focal'
+        local os_id repo_codename
+        os_id=$(bash -c '. /etc/os-release; echo "${ID}"')
+        if [[ "${os_id}" == "ubuntu" ]]; then
+            repo_codename=$(bash -c '. /etc/os-release; echo "${VERSION_CODENAME:-focal}"')
+            run_cmd "Adding Ookla apt repository (Ubuntu ${repo_codename})" \
+                bash -c "echo 'deb [signed-by=/usr/share/keyrings/ookla-speedtest.gpg] \
+https://packagecloud.io/ookla/speedtest-cli/ubuntu/ ${repo_codename} main' \
+> /etc/apt/sources.list.d/ookla_speedtest-cli.list"
+        else
+            # Debian / Raspbian — use Ubuntu focal repo (binary-compatible)
+            run_cmd "Adding Ookla apt repository (Debian → Ubuntu focal fallback)" \
+                bash -c "echo 'deb [signed-by=/usr/share/keyrings/ookla-speedtest.gpg] \
+https://packagecloud.io/ookla/speedtest-cli/ubuntu/ focal main' \
+> /etc/apt/sources.list.d/ookla_speedtest-cli.list"
+        fi
+
+        run_cmd "Updating package lists (post-repo)" apt-get update -qq
+        run_cmd "Installing speedtest" \
+            apt-get install -y -o Dpkg::Options::="--force-confdef" \
+                               -o Dpkg::Options::="--force-confold" speedtest
 
     elif [[ "${PKG_INSTALL}" == dnf* ]] || [[ "${PKG_INSTALL}" == yum* ]]; then
         # Use Ookla's official packagecloud script — handles RHEL/Fedora/Rocky correctly
