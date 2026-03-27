@@ -29,6 +29,8 @@ readonly CLI_PATH="/usr/local/bin/ezeu"
 readonly LOG_DIR="/var/log/ezeu"
 readonly DEFAULT_PORT=8745
 readonly NODE_MIN_VERSION=18
+readonly NODE_MAX_VERSION=24   # better-sqlite3 supports up to Node 24
+readonly NODE_LTS_VERSION=22  # LTS to install when system Node is unsupported
 
 # ── Colours & Symbols ────────────────────────────────────────
 readonly COL_NC='\e[0m'
@@ -233,45 +235,62 @@ install_system_deps() {
 # ────────────────────────────────────────────────────────────
 
 install_nodejs() {
-    print_section "Node.js (≥ v${NODE_MIN_VERSION})"
+    print_section "Node.js (v${NODE_MIN_VERSION}–${NODE_MAX_VERSION} required)"
 
     local current_version=0
     if command -v node &>/dev/null; then
         current_version=$(node -e "process.stdout.write(process.version.replace('v','').split('.')[0])" 2>/dev/null || echo 0)
     fi
 
-    if [[ "${current_version}" -ge "${NODE_MIN_VERSION}" ]]; then
-        print_success "Node.js $(node --version) already installed"
+    if [[ "${current_version}" -ge "${NODE_MIN_VERSION}" && "${current_version}" -le "${NODE_MAX_VERSION}" ]]; then
+        print_success "Node.js $(node --version) already installed (compatible)"
         return 0
     fi
 
-    print_info "Installing Node.js v${NODE_MIN_VERSION} via NodeSource..."
+    if [[ "${current_version}" -gt "${NODE_MAX_VERSION}" ]]; then
+        print_warn "Node.js $(node --version) is newer than supported (max v${NODE_MAX_VERSION})."
+        print_warn "better-sqlite3 requires Node ${NODE_MIN_VERSION}–${NODE_MAX_VERSION}. Installing LTS v${NODE_LTS_VERSION}..."
+    else
+        print_info "Node.js not found or too old. Installing LTS v${NODE_LTS_VERSION}..."
+    fi
+
+    print_info "Installing Node.js v${NODE_LTS_VERSION} LTS via NodeSource..."
 
     if [[ "${PKG_INSTALL}" == apt-get* ]]; then
-        run_cmd "Fetching NodeSource setup" \
-            bash -c "curl -fsSL https://deb.nodesource.com/setup_${NODE_MIN_VERSION}.x -o /tmp/ns_setup.sh"
+        run_cmd "Fetching NodeSource setup (LTS v${NODE_LTS_VERSION})" \
+            bash -c "curl -fsSL https://deb.nodesource.com/setup_${NODE_LTS_VERSION}.x -o /tmp/ns_setup.sh"
         run_cmd "Running NodeSource setup" bash /tmp/ns_setup.sh
-        run_cmd "Installing nodejs" apt-get install -y nodejs
+        # Force reinstall to downgrade if a newer/incompatible version exists
+        run_cmd "Installing nodejs v${NODE_LTS_VERSION}" \
+            apt-get install -y --allow-downgrades nodejs
         rm -f /tmp/ns_setup.sh
 
     elif [[ "${PKG_INSTALL}" == dnf* ]] || [[ "${PKG_INSTALL}" == yum* ]]; then
-        run_cmd "Fetching NodeSource setup" \
-            bash -c "curl -fsSL https://rpm.nodesource.com/setup_${NODE_MIN_VERSION}.x -o /tmp/ns_setup.sh"
+        run_cmd "Fetching NodeSource setup (LTS v${NODE_LTS_VERSION})" \
+            bash -c "curl -fsSL https://rpm.nodesource.com/setup_${NODE_LTS_VERSION}.x -o /tmp/ns_setup.sh"
         run_cmd "Running NodeSource setup" bash /tmp/ns_setup.sh
-        run_cmd "Installing nodejs" bash -c "${PKG_INSTALL} nodejs"
+        run_cmd "Installing nodejs v${NODE_LTS_VERSION}" bash -c "${PKG_INSTALL} nodejs"
         rm -f /tmp/ns_setup.sh
 
     elif [[ "${PKG_INSTALL}" == pacman* ]]; then
         run_cmd "Installing nodejs npm" pacman -S --noconfirm nodejs npm
 
     elif [[ "${PKG_INSTALL}" == zypper* ]]; then
-        run_cmd "Installing nodejs" zypper install -y "nodejs${NODE_MIN_VERSION}"
+        run_cmd "Installing nodejs" zypper install -y "nodejs${NODE_LTS_VERSION}"
     fi
 
     if command -v node &>/dev/null; then
-        print_success "Node.js $(node --version) installed"
+        local installed_ver
+        installed_ver=$(node -e "process.stdout.write(process.version.replace('v','').split('.')[0])" 2>/dev/null || echo 0)
+        if [[ "${installed_ver}" -ge "${NODE_MIN_VERSION}" && "${installed_ver}" -le "${NODE_MAX_VERSION}" ]]; then
+            print_success "Node.js $(node --version) installed (compatible)"
+        else
+            print_error "Node.js $(node --version) is still outside supported range (v${NODE_MIN_VERSION}–v${NODE_MAX_VERSION})."
+            print_error "Remove the incompatible version (e.g. 'nvm use 22' or 'n 22') and re-run the installer."
+            exit 1
+        fi
     else
-        print_error "Node.js installation failed. Install v${NODE_MIN_VERSION}+ manually then re-run."
+        print_error "Node.js installation failed. Install v${NODE_LTS_VERSION} manually then re-run."
         exit 1
     fi
 }
@@ -397,7 +416,7 @@ install_npm_packages() {
     print_section "Node.js Packages"
 
     run_cmd "Backend dependencies (npm install)" \
-        bash -c "cd '${INSTALL_DIR}/backend' && npm install --omit=dev --no-fund --no-audit 2>&1"
+        bash -c "cd '${INSTALL_DIR}/backend' && npm install --omit=dev --no-fund --no-audit --ignore-scripts=false 2>&1"
 
     print_info "Installing frontend build dependencies (this may take a minute)..."
     run_cmd "Frontend dependencies (npm install)" \
