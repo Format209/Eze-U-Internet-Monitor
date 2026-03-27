@@ -615,6 +615,9 @@ readonly _GITHUB_API="https://api.github.com/repos/${_GITHUB_REPO}"
 readonly _GITHUB_URL="https://github.com/${_GITHUB_REPO}.git"
 readonly _SERVICE_USER="ezeu"
 
+# Allow root (and any user) to run git commands on the service-owned install dir
+git config --global --add safe.directory "${_INSTALL_DIR}" 2>/dev/null || true
+
 readonly COL_NC='\e[0m'
 readonly COL_RED='\e[0;31m'
 readonly COL_GREEN='\e[0;32m'
@@ -791,6 +794,9 @@ cmd_update() {
     fi
 
     # Pull latest changes
+    # Allow root to operate on a repo owned by the service user
+    git config --global --add safe.directory "${_INSTALL_DIR}" 2>/dev/null || true
+
     print_info "Pulling latest changes from GitHub..."
     if ! git -C "${_INSTALL_DIR}" pull --ff-only origin main 2>&1; then
         print_error "git pull failed — local modifications may be conflicting."
