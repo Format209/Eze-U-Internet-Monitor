@@ -293,18 +293,15 @@ install_speedtest_cli() {
     fi
 
     if [[ "${PKG_INSTALL}" == apt-get* ]]; then
-        run_cmd "Adding Ookla GPG key" \
-            bash -c 'curl -fsSL https://packagecloud.io/ookla/speedtest-cli/gpgkey | gpg --dearmor -o /usr/share/keyrings/ookla-speedtest.gpg'
-        local distro
-        distro=$(bash -c '. /etc/os-release; echo "${UBUNTU_CODENAME:-${VERSION_CODENAME:-focal}}"')
-        run_cmd "Adding Ookla repository" \
-            bash -c "echo 'deb [signed-by=/usr/share/keyrings/ookla-speedtest.gpg] https://packagecloud.io/ookla/speedtest-cli/ubuntu/ ${distro} main' > /etc/apt/sources.list.d/ookla_speedtest-cli.list"
-        run_cmd "Updating package lists" apt-get update -qq
+        # Use Ookla's official packagecloud script — handles Ubuntu AND Debian correctly
+        run_cmd "Adding Ookla repository (deb)" \
+            bash -c 'curl -fsSL https://packagecloud.io/ookla/speedtest-cli/script.deb.sh | bash'
         run_cmd "Installing speedtest" apt-get install -y speedtest
 
     elif [[ "${PKG_INSTALL}" == dnf* ]] || [[ "${PKG_INSTALL}" == yum* ]]; then
-        run_cmd "Adding Ookla repository" \
-            bash -c 'curl -fsSL https://packagecloud.io/ookla/speedtest-cli/config_file.sh | bash'
+        # Use Ookla's official packagecloud script — handles RHEL/Fedora/Rocky correctly
+        run_cmd "Adding Ookla repository (rpm)" \
+            bash -c 'curl -fsSL https://packagecloud.io/ookla/speedtest-cli/script.rpm.sh | bash'
         run_cmd "Installing speedtest" bash -c "${PKG_INSTALL} speedtest"
 
     else
