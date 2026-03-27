@@ -12,6 +12,10 @@
 
 set -euo pipefail
 
+# Suppress all interactive prompts from apt/dpkg/gpg for the duration of the install
+export DEBIAN_FRONTEND=noninteractive
+export GIT_TERMINAL_PROMPT=0
+
 # ── Constants ────────────────────────────────────────────────
 readonly GITHUB_OWNER="Format209"
 readonly GITHUB_REPO_NAME="Eze-U-Internet-Monitor"
@@ -294,9 +298,10 @@ install_speedtest_cli() {
 
     if [[ "${PKG_INSTALL}" == apt-get* ]]; then
         # Use Ookla's official packagecloud script — handles Ubuntu AND Debian correctly
+        # os_type forces non-interactive mode in the packagecloud script
         run_cmd "Adding Ookla repository (deb)" \
-            bash -c 'curl -fsSL https://packagecloud.io/ookla/speedtest-cli/script.deb.sh | bash'
-        run_cmd "Installing speedtest" apt-get install -y speedtest
+            bash -c 'curl -fsSL https://packagecloud.io/ookla/speedtest-cli/script.deb.sh | DEBIAN_FRONTEND=noninteractive bash'
+        run_cmd "Installing speedtest" apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" speedtest
 
     elif [[ "${PKG_INSTALL}" == dnf* ]] || [[ "${PKG_INSTALL}" == yum* ]]; then
         # Use Ookla's official packagecloud script — handles RHEL/Fedora/Rocky correctly
