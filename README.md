@@ -75,7 +75,30 @@ The ISC License is a permissive open-source license similar to MIT and BSD, allo
 
 ## 📦 Installation
 
-### Prerequisites
+### ⚡ One-Line Install (Linux / Raspberry Pi)
+
+```bash
+curl -sSL https://raw.githubusercontent.com/Format209/Eze-U-Internet-Monitor/main/install.sh | sudo bash
+```
+
+This will automatically install all dependencies (Node.js, build tools, Ookla Speedtest CLI), build the frontend, register the app as a systemd service, and install the `ezeu` management CLI.
+
+**After install, manage with:**
+```bash
+ezeu status       # Show service status and URL
+ezeu -up          # Check GitHub and update to latest version
+ezeu logs         # Follow live logs
+ezeu restart      # Restart the service
+ezeu help         # All available commands
+```
+
+> Supports Debian/Ubuntu, RHEL/Fedora/Rocky/CentOS, Arch, openSUSE, and Raspberry Pi OS.
+
+---
+
+### Manual Installation
+
+#### Prerequisites
 - **Node.js** 14 or higher
 - **Ookla Speedtest CLI** - See [OOKLA_CLI_SETUP.md](OOKLA_CLI_SETUP.md) for installation instructions
 
